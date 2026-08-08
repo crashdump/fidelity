@@ -19,3 +19,19 @@ target
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
+
+# macOS
+.DS_Store
+
+# Machine-local agent settings. They name the permissions of one machine.
+# The skills in .agents/ ship, and so do the links in .claude/skills that point
+# at them, because that is where Claude Code looks.
+.claude/settings.local.json
+
+# The Android library project that fidelity-probe-android owns.
+# `local.properties` names the SDK on one machine, so it never ships.
+crates/probe/fidelity-probe-android/android/build/
+crates/probe/fidelity-probe-android/android/.gradle/
+crates/probe/fidelity-probe-android/android/local.properties
+crates/probe/fidelity-probe-android/android/harness/Cargo.lock
+crates/probe/fidelity-probe-android/android/.kotlin/
