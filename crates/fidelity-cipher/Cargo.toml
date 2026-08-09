@@ -1,0 +1,12 @@
+[package]
+name = "fidelity-cipher"
+description = "Key derivation and the alphabet-preserving stream for fidelity guarded constants."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

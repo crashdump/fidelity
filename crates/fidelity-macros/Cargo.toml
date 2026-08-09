@@ -1,0 +1,16 @@
+[package]
+name = "fidelity-macros"
+description = "The guarded!() macro for the fidelity runtime tamper detection library."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+fidelity-cipher = { path = "../fidelity-cipher", version = "0.0.0" }
+
+[lints]
+workspace = true
