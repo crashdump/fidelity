@@ -1,0 +1,39 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/fidelity",
+    "crates/fidelity-cipher",
+    "crates/fidelity-core",
+    "crates/fidelity-detect",
+    "crates/fidelity-engine",
+    "crates/fidelity-formats",
+    "crates/fidelity-macros",
+    "crates/probe/fidelity-probe-android",
+    "crates/probe/fidelity-probe-apple",
+    "crates/probe/fidelity-probe-linux",
+    "crates/probe/fidelity-probe-windows",
+    "crates/fidelity-testkit",
+    "crates/fidelity-types",
+]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+# `docs/plan/06-delivery.md` pins the MSRV to one concrete version, at or below
+# the current stable release minus two. A new Rust release never raises it.
+rust-version = "1.85"
+license = "Apache-2.0"
+
+[workspace.lints.rust]
+missing_docs = "deny"
+missing_debug_implementations = "deny"
+unreachable_pub = "deny"
+rust_2018_idioms = { level = "deny", priority = -1 }
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+todo = "deny"
+unimplemented = "deny"

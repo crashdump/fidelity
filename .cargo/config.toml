@@ -1,0 +1,11 @@
+# Development values for the guarded-constant build inputs.
+#
+# `guarded!()` fails the build when either is absent, because a default seed
+# would give every host the same one, and silence about identity states
+# nothing. These values keep `cargo test` working in this workspace.
+#
+# A release must override both. The environment wins over this file, so
+# `FIDELITY_BUILD_SEED=$(uuidgen) cargo build --release` needs no edit here.
+[env]
+FIDELITY_BUILD_SEED = "fidelity-workspace-development-seed"
+FIDELITY_CODE_IDENTITY = "none"
