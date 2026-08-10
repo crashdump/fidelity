@@ -1,0 +1,15 @@
+[package]
+name = "fidelity-testkit"
+description = "Deterministic test support for the fidelity runtime tamper detection library."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+fidelity-core = { path = "../fidelity-core", version = "0.0.0" }
+fidelity-types = { path = "../fidelity-types", version = "0.0.0" }
+
+[lints]
+workspace = true

@@ -1,0 +1,17 @@
+[package]
+name = "fidelity-detect"
+description = "The built-in detector set for the fidelity runtime tamper detection library."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+fidelity-core = { path = "../fidelity-core", version = "0.0.0" }
+fidelity-types = { path = "../fidelity-types", version = "0.0.0" }
+
+[dev-dependencies]
+fidelity-testkit = { path = "../fidelity-testkit", version = "0.0.0" }
+
+[lints]
+workspace = true
