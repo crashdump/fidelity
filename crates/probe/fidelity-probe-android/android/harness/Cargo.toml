@@ -1,0 +1,21 @@
+# The test harness that the Android library project loads.
+#
+# It is not a workspace member. It exists to expose the probe to an instrumented
+# test through JNI, and it ships in no release, so it stays out of the crate
+# list that the architecture tests read.
+[workspace]
+
+[package]
+name = "fidelity-harness"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+fidelity = { path = "../../../../fidelity" }
+fidelity-probe-android = { path = "../.." }
+fidelity-core = { path = "../../../../fidelity-core" }
+fidelity-types = { path = "../../../../fidelity-types" }
