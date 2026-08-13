@@ -159,8 +159,24 @@ linux_create() {
 
 # ----------------------------------------------------------------- the Windows
 
-# The one step that a person takes, and the reason is Microsoft's rather than
-# this project's.
+# Windows 11 25H2 asks a person a few questions that its own answer file does
+# not remove, and this is what they are and how to answer them. Measured on
+# 2026-08-13, driving the guest through the QEMU monitor.
+#
+#   - the setup pages come from the new setup, which shows them whether or not
+#     an answer file is present. The page offers a previous version of setup,
+#     and that one honors the file.
+#   - the hardware check refuses a guest, because it has no security chip and
+#     no secure boot. Shift+F10 opens a command prompt inside setup, and three
+#     `reg add` lines under HKLM\System\Setup\LabConfig turn the three checks
+#     off. Confirmed: the check passes on the next attempt.
+#   - the guest keyboard follows the language of the image. An EN-GB image
+#     takes a UK layout, where the QEMU key named `backslash` produces `#`.
+#     The UK backslash is the key left of Z, which QEMU calls `less`. A
+#     registry path typed the obvious way lands as `HKLM#System#Setup`.
+#
+# The one download step that a person takes has a different reason, and it is
+# Microsoft's rather than this project's.
 #
 # The download has four steps, and three of them answer a script. The page
 # names the ARM64 product, and an interface returns the language list. The
@@ -342,17 +358,14 @@ cd \efi\boot
 bootaa64.efi
 NSH
 
-    # `-layout NONE` puts the filesystem at the start of the disk with no
-    # partition table. Windows Setup scans removable volumes for the answer
-    # file, and it finds this layout where a partitioned image can hide the
-    # volume from it. The firmware reads either one, so the boot script is
-    # unaffected.
-    #
-    # The resource forks that macOS writes beside each file are dropped, so the
-    # volume holds the two files it should and nothing else.
+    # The disk keeps its partition table, and that is measured rather than
+    # assumed. A run with `-layout NONE` put the filesystem at the start of the
+    # disk with no table, and Windows Setup then listed this disk as 8 MB of
+    # unallocated space: it could not read the volume at all, so it could never
+    # have found an answer file on it. The firmware reads either layout, so
+    # only Windows decides this one.
     hdiutil create -quiet -srcfolder "$work" -fs MS-DOS -volname ANSWERS \
-        -layout NONE -format UDRW -ov "$DIR/answers" ||
-        die "the answer disk did not build"
+        -format UDRW -ov "$DIR/answers" || die "the answer disk did not build"
     say "wrote the answer disk $DIR/answers.dmg, with the boot script"
 }
 
