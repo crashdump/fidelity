@@ -21,6 +21,9 @@ use std::ffi::c_void;
 /// The protection bit that marks a region as executable.
 const VM_PROT_EXECUTE: i32 = 0x4;
 
+/// The protection bit that marks a region as writable.
+const VM_PROT_WRITE: i32 = 0x2;
+
 /// Ask for the 64-bit basic form of the region information.
 const VM_REGION_BASIC_INFO_64: i32 = 9;
 
@@ -75,6 +78,7 @@ unsafe extern "C" {
         count: *mut u32,
         object: *mut u32,
     ) -> i32;
+    fn mach_port_deallocate(task: u32, name: u32) -> i32;
 }
 
 /// One executable region, as the kernel reports it.
@@ -84,6 +88,8 @@ pub(crate) struct Region {
     pub(crate) start: u64,
     /// The address after the region.
     pub(crate) end: u64,
+    /// Whether the region is writable as well as executable.
+    pub(crate) writable: bool,
 }
 
 /// Walks the top-level executable regions of this task, in address order.
@@ -121,6 +127,19 @@ pub(crate) fn executable() -> Result<Vec<Region>, &'static str> {
             )
         };
 
+        if result == KERN_SUCCESS && object != 0 {
+            // A successful call moves a send right for the memory object into
+            // this task, and this walk never uses it. Without this line the
+            // process keeps one name for every region that returns one, on
+            // every scan, and a process that runs for days exhausts its port
+            // namespace. The release comes before the exit below, because a
+            // call that reports a zero size still moved the right.
+            //
+            // SAFETY: `object` is a name that the call above moved into this
+            // task, and no other code holds it.
+            unsafe { mach_port_deallocate(mach_task_self(), object) };
+        }
+
         if result != KERN_SUCCESS || size == 0 {
             // The walk ends when no region sits at or above the address.
             break;
@@ -133,6 +152,7 @@ pub(crate) fn executable() -> Result<Vec<Region>, &'static str> {
             found.push(Region {
                 start: address,
                 end: address.saturating_add(size),
+                writable: protection & VM_PROT_WRITE != 0,
             });
         }
 

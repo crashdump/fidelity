@@ -1,17 +1,36 @@
 //! The facts that the runtime baseline capability reports.
 
 /// One executable region of the process.
+///
+/// The region carries its protection as well as its range, because the
+/// [runtime baseline](../../../../docs/plan/04-detectors-and-platforms.md)
+/// records both. A range alone cannot state that a region which the process
+/// mapped as read and execute at start is now writable as well.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Region {
     start: u64,
     end: u64,
+    writable: bool,
 }
 
 impl Region {
-    /// Creates a region from its first address and the address after it.
+    /// Creates a region from its range and whether it is writable.
+    ///
+    /// Every region here is executable, because a snapshot holds no other
+    /// kind, so `writable` states whether the region is writable as well.
     #[must_use]
-    pub const fn new(start: u64, end: u64) -> Self {
-        Self { start, end }
+    pub const fn new(start: u64, end: u64, writable: bool) -> Self {
+        Self {
+            start,
+            end,
+            writable,
+        }
+    }
+
+    /// Reports whether the region is writable as well as executable.
+    #[must_use]
+    pub const fn is_writable(&self) -> bool {
+        self.writable
     }
 
     /// The first address of the region.
@@ -105,6 +124,27 @@ impl CodeRegions {
             .copied()
             .collect()
     }
+
+    /// The regions of `self` that `earlier` held, and held as not writable.
+    ///
+    /// A region keeps its first address when something changes its
+    /// protection, so [`added_since`](CodeRegions::added_since) reports
+    /// nothing for it. This states the other half: code that the process
+    /// mapped as read and execute, and that something has made writable since.
+    #[must_use]
+    pub fn now_writable_since(&self, earlier: &Self) -> Vec<Region> {
+        self.regions
+            .iter()
+            .filter(|region| region.writable)
+            .filter(|region| {
+                earlier
+                    .regions
+                    .iter()
+                    .any(|known| known.start == region.start && !known.writable)
+            })
+            .copied()
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -115,7 +155,17 @@ mod tests {
         CodeRegions::new(
             pairs
                 .iter()
-                .map(|&(start, end)| Region::new(start, end))
+                .map(|&(start, end)| Region::new(start, end, false))
+                .collect(),
+        )
+    }
+
+    /// The same snapshot, with every region writable as well as executable.
+    fn writable(pairs: &[(u64, u64)]) -> CodeRegions {
+        CodeRegions::new(
+            pairs
+                .iter()
+                .map(|&(start, end)| Region::new(start, end, true))
                 .collect(),
         )
     }
@@ -130,7 +180,10 @@ mod tests {
     fn a_fresh_region_reads_as_added() {
         let first = regions(&[(0x1000, 0x2000)]);
         let later = regions(&[(0x1000, 0x2000), (0x9000, 0xa000)]);
-        assert_eq!(later.added_since(&first), vec![Region::new(0x9000, 0xa000)]);
+        assert_eq!(
+            later.added_since(&first),
+            vec![Region::new(0x9000, 0xa000, false)]
+        );
     }
 
     #[test]
@@ -163,7 +216,7 @@ mod tests {
         let snapshot = regions(&[(0x5000, 0x6000), (0x1000, 0x2000)]);
         assert_eq!(
             snapshot.regions().first(),
-            Some(&Region::new(0x1000, 0x2000))
+            Some(&Region::new(0x1000, 0x2000, false))
         );
     }
 
@@ -190,12 +243,33 @@ mod tests {
 
     #[test]
     fn a_region_states_its_size() {
-        assert_eq!(Region::new(0x1000, 0x3000).bytes(), 0x2000);
+        assert_eq!(Region::new(0x1000, 0x3000, false).bytes(), 0x2000);
     }
 
     #[test]
     fn a_region_holds_its_first_address_and_not_the_address_after_it() {
-        let region = Region::new(0x1000, 0x2000);
+        let region = Region::new(0x1000, 0x2000, false);
         assert!(region.holds(0x1000) && !region.holds(0x2000));
+    }
+    #[test]
+    fn a_region_that_became_writable_reads_as_changed() {
+        // The attacker keeps the address and changes the protection only, so
+        // the added-region rule reports nothing and this rule reports it.
+        let start = regions(&[(0x1000, 0x2000)]);
+        let now = writable(&[(0x1000, 0x2000)]);
+        assert!(now.added_since(&start).is_empty());
+        assert_eq!(now.now_writable_since(&start).len(), 1);
+    }
+
+    #[test]
+    fn a_region_that_was_writable_at_start_reads_as_unchanged() {
+        // A runtime that maps its own code cache writable before the baseline
+        // is a clean control, and it stays clean on every later scan.
+        let start = writable(&[(0x1000, 0x2000)]);
+        assert!(
+            writable(&[(0x1000, 0x2000)])
+                .now_writable_since(&start)
+                .is_empty()
+        );
     }
 }

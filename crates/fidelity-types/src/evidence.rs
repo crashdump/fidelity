@@ -127,6 +127,16 @@ pub enum Evidence {
         detail: BoundedText,
     },
 
+    /// The process made code writable that it did not map writable at start.
+    ///
+    /// This is the other half of the runtime baseline. A region that changes
+    /// protection keeps its first address, so it never reads as added code,
+    /// and code that turns writable is what a patch needs before it lands.
+    CodeMadeWritable {
+        /// How many regions turned writable, and how much code they hold.
+        detail: BoundedText,
+    },
+
     /// The system states that no vendor released the build that runs now.
     ///
     /// The evidence names the setting that the system left open, because a

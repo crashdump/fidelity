@@ -16,7 +16,7 @@ pub(crate) fn code_regions() -> Observation<CodeRegions> {
         Ok(found) => Observation::Fact(CodeRegions::new(
             found
                 .into_iter()
-                .map(|region| Region::new(region.start, region.end))
+                .map(|region| Region::new(region.start, region.end, region.writable))
                 .collect(),
         )),
         Err(detail) => Observation::Failed {

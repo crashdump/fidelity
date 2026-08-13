@@ -55,9 +55,12 @@ failure is safe, and release testing covers the supported OS range.
 Integrity checks distinguish two baselines:
 
 - **Image identity** answers whether this is the expected image. It has the two tiers below.
-- **Runtime baseline** records the mappings, protections, and dispatch targets that the operating
-  system reports during the synchronous initial scan. It detects later change but cannot prove that
-  launch was initially clean.
+- **Runtime baseline** records the mappings and the protections that the operating system reports
+  during the synchronous initial scan. It reports a region that arrived after start, and a region
+  that start mapped as read and execute and that something has made writable. It detects later
+  change but cannot prove that launch was initially clean. It does not detect code that an attacker
+  replaces inside a mapping that keeps both its first address and its protection, because a scan
+  reads no content. Dispatch targets are not recorded yet.
 
 ### Image identity tiers
 
@@ -137,9 +140,13 @@ not declare them. A host-declared exclusion list would give an attacker a suppor
 region, so v1 has no such input. Every runtime that generates code, such as a WebView, ART, or a
 managed runtime, is a required clean control.
 
-A scan must not accept a mixed view while the mappings change. It obtains a consistent snapshot,
-retries within a strict bound, or reports a `Low` detector-health finding. Evidence states which
-anchor the scan checked, and which regions or identities it excluded. Every integrity detector must
+A scan reads the mappings in one forward pass, and it does not retry. A region that arrives below
+the cursor after the cursor passed it is absent from that scan. The baseline is immutable, so the
+next scan reports it, and a missed region costs one worker cycle rather than going missing for good.
+A second pass would shorten that window and report a `Low` detector-health finding every time a
+runtime mapped code between the two passes, so it would cost a false finding on every process that
+holds a JIT. Evidence states which anchor the scan checked, and which regions or identities it
+excluded. Every integrity detector must
 have clean and hostile test cases for relocations, packaging transforms, JIT runtimes, late
 legitimate loads, startup races, and a baseline that exists before `start()`.
 

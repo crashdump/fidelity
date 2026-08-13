@@ -18,6 +18,17 @@ pub const RUNTIME_BASELINE: Detector =
 /// legitimate load as a required clean control, and `High` waits for it.
 const ADDED_STRENGTH: SignalStrength = SignalStrength::Medium;
 
+/// The strength of a region that turned writable after start.
+///
+/// `Medium`, and for the same reason as a region that arrived. The evidence is
+/// direct, because the process did not map that code writable at start.
+///
+/// A runtime that maps its own code cache writable before the baseline never
+/// reports here, because the comparison states a change and not a state. One
+/// benign case keeps it below `High`: a compiler may change the protection of
+/// a pool that it owns after the process starts.
+const OPENED_STRENGTH: SignalStrength = SignalStrength::Medium;
+
 /// The reason a truncated snapshot states.
 const TRUNCATED: &str = "the process maps more executable regions than a snapshot keeps";
 
@@ -55,17 +66,36 @@ pub(crate) fn runtime_baseline(
                 return Outcome::Unsupported { reason: TRUNCATED };
             }
             let added = current.added_since(baseline);
-            if added.is_empty() {
+            if !added.is_empty() {
+                let bytes: u64 = added.iter().map(Region::bytes).sum();
+                return Outcome::Finding(Finding::new(
+                    RUNTIME_BASELINE,
+                    ADDED_STRENGTH,
+                    Evidence::CodeAddedAfterStart {
+                        detail: BoundedText::new(format!(
+                            "executable memory that start did not map: {bytes} bytes, region count {}",
+                            added.len()
+                        )),
+                    },
+                    now_unix_ms,
+                ));
+            }
+
+            // A region that changed protection keeps its first address, so the
+            // rule above reports nothing for it. Code that turns writable is
+            // what a patch needs before it lands, so the baseline states it.
+            let opened = current.now_writable_since(baseline);
+            if opened.is_empty() {
                 return Outcome::Clean;
             }
-            let bytes: u64 = added.iter().map(Region::bytes).sum();
+            let bytes: u64 = opened.iter().map(Region::bytes).sum();
             Outcome::Finding(Finding::new(
                 RUNTIME_BASELINE,
-                ADDED_STRENGTH,
-                Evidence::CodeAddedAfterStart {
+                OPENED_STRENGTH,
+                Evidence::CodeMadeWritable {
                     detail: BoundedText::new(format!(
-                        "executable memory that start did not map: {bytes} bytes, region count {}",
-                        added.len()
+                        "executable memory that start did not map writable: {bytes} bytes, region count {}",
+                        opened.len()
                     )),
                 },
                 now_unix_ms,

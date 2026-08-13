@@ -18,9 +18,13 @@ impl Baseline for AndroidEnvironment {
             }
         };
 
-        let regions: Vec<Region> = maps::executable_ranges(&text)
+        // The mapping reader states the protection, and the baseline keeps
+        // it. A region that start() mapped as read and execute, and that is
+        // writable now, keeps its first address, so the range alone would
+        // report nothing.
+        let regions: Vec<Region> = maps::executable_mappings(&text)
             .into_iter()
-            .map(|(start, end)| Region::new(start, end))
+            .map(|mapping| Region::new(mapping.start, mapping.end, mapping.writable))
             .collect();
 
         if regions.is_empty() {
