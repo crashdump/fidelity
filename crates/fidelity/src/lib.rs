@@ -116,9 +116,10 @@ static RUNNING: AtomicBool = AtomicBool::new(false);
 /// so a check reads it without a lock and without an allocation.
 ///
 /// The engine holds the same latch inside its state, because that is what
-/// [`Handle::snapshot`] reports. Every writer updates the engine first and
-/// this word second, so a host that sees a denial here always reads a
-/// snapshot that explains it.
+/// [`Handle::snapshot`] reports. Every writer updates the engine and this word
+/// while it holds the state lock, so the two never disagree: a host that sees
+/// a denial here always reads a snapshot that explains it, and a snapshot that
+/// shows a latch always denies.
 static LATCHED: AtomicU32 = AtomicU32::new(0);
 
 /// Whether the worker completed its first full scan.
@@ -151,6 +152,18 @@ pub(crate) fn latch(category: Category) {
     let mut set = CategorySet::new();
     set.insert(category);
     LATCHED.fetch_or(set.bits(), Ordering::AcqRel);
+}
+
+/// Clears the latch that a start claimed and then abandoned.
+///
+/// A latch never clears while a runtime lives. This is the one exception, and
+/// it is safe for one reason: the caller holds the process-wide slot, so no
+/// runtime exists to own the state. The initial scan of a start that then
+/// fails can latch a category, and the handle that would explain it is never
+/// built. Without this, a later start returns a handle that denies for a
+/// category its own snapshot does not hold.
+pub(crate) fn clear_latched() {
+    LATCHED.store(0, Ordering::Release);
 }
 
 pub(crate) fn full_scan_complete() -> bool {

@@ -68,8 +68,9 @@ pub fn now_unix_ms() -> u64 {
 /// before a callback runs and before a `Crash` stops the process. A `Deny`
 /// latch is active as soon as the call returns.
 ///
-/// The engine latch and the process-wide latch are written in that order, so a
-/// host that sees a denial always reads a snapshot that explains it.
+/// The engine latch and the process-wide latch are written under one lock, so
+/// the two never disagree. A host that sees a denial always reads a snapshot
+/// that explains it, and a snapshot that shows a latch always denies.
 pub fn record(
     state: &Mutex<State>,
     policy: &Policy,
@@ -77,9 +78,9 @@ pub fn record(
     outcomes: Vec<(Detector, Outcome)>,
 ) -> Vec<(Finding, Action)> {
     let mut qualified = Vec::new();
-    let mut denied = Vec::new();
     {
         let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut denied = Vec::new();
         for (detector, outcome) in outcomes {
             let Some(finding) = state.record(detector, outcome) else {
                 continue;
@@ -93,11 +94,18 @@ pub fn record(
             }
             qualified.push((finding, action));
         }
+
+        // Both latches are written while this lock is held, so no reader ever
+        // sees one without the other. `snapshot()` takes this same lock, and
+        // `ensure_allowed()` reads the process-wide word alone: a reader that
+        // finds that word clear cannot reach the state until this scope ends.
+        // The hook writes one atomic word and takes no lock of its own, so it
+        // is safe to call here.
+        for category in denied {
+            (hooks.latch)(category);
+        }
     }
 
-    for category in denied {
-        (hooks.latch)(category);
-    }
     qualified
 }
 

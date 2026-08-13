@@ -94,14 +94,15 @@ impl Handle {
     ///
     /// The call is safe inside the finding callback.
     pub fn deny(&self, category: Category) {
-        // Write the engine first and the process-wide word second. A host
-        // that sees the denial through `ensure_allowed()` then always reads a
-        // snapshot that explains it.
-        self.runtime
+        // Both latches are written while this guard lives, so the two never
+        // disagree. `snapshot()` takes the same lock, so a reader that finds
+        // the process-wide word clear cannot yet read the latched state.
+        let mut state = self
+            .runtime
             .state
             .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .latch_by_host(category);
+            .unwrap_or_else(PoisonError::into_inner);
+        state.latch_by_host(category);
         crate::latch(category);
     }
 

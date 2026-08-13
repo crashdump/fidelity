@@ -167,8 +167,11 @@ impl Builder {
             Ok(handle) => Ok(handle),
             Err(error) => {
                 // A failed start leaves no process-wide trace, so a corrected
-                // retry starts from the same place the first call did.
+                // retry starts from the same place the first call did. The
+                // initial scan runs before the worker exists, so it can latch
+                // a category that no handle ever explains.
                 set_deny_until_full_scan(false);
+                crate::clear_latched();
                 release_slot();
                 Err(error)
             }
@@ -233,6 +236,13 @@ impl Builder {
             self.callback,
             HOOKS,
         );
+        // The handle is built before the thread exists. The initial scan can
+        // qualify a callback or a `Crash`, and the lifecycle in
+        // `docs/plan/03-runtime-and-api.md` puts both after `start()` builds
+        // the handle. A worker that starts first races that construction, so a
+        // `Crash` could stop the process before any handle existed.
+        let handle = Handle::new(Arc::new(Runtime::new(state, identity)));
+
         std::thread::Builder::new()
             .name(String::from("fidelity"))
             .spawn(move || worker.run(initial))
@@ -240,7 +250,7 @@ impl Builder {
                 reason: error.kind(),
             })?;
 
-        Ok(Handle::new(Arc::new(Runtime::new(state, identity))))
+        Ok(handle)
     }
 }
 

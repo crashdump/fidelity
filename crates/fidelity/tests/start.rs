@@ -47,12 +47,13 @@ fn the_runtime_starts_once_and_reports_its_state() {
         Some(StartError::AlreadyRunning)
     );
 
-    // A clone refers to the same runtime.
-    assert_eq!(handle.clone().snapshot(), snapshot);
-
     // A host verdict latches, and it stays distinguishable from a detector
-    // verdict, because it carries no finding.
-    handle.deny(Category::Debugging);
+    // verdict, because it carries no finding. The verdict goes through a
+    // clone, which proves that a clone refers to the same runtime. Comparing
+    // two snapshots would prove the same thing and race the worker, because
+    // the worker records its first full scan into this state and a count or a
+    // timestamp then differs between any two calls.
+    handle.clone().deny(Category::Debugging);
     assert!(handle.ensure_allowed().is_err());
     assert!(
         handle
