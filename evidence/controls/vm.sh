@@ -326,9 +326,34 @@ windows_answers() {
 </unattend>
 EOF
 
+    # The firmware needs telling, and this is the file that tells it.
+    #
+    # EDK2 finds no boot option it likes for an installation image on a USB
+    # CD-ROM, and a `bootindex` does not change that. It drops to its own
+    # interactive shell instead, where the installer never runs. That shell
+    # runs `startup.nsh` from any filesystem it can see, and this disk is one,
+    # so the answer disk carries the boot as well as the answers.
+    #
+    # `FS0:` is the image, and the loader path came from reading it rather
+    # than from a guess.
+    cat > "$work/startup.nsh" <<'NSH'
+FS0:
+cd \efi\boot
+bootaa64.efi
+NSH
+
+    # `-layout NONE` puts the filesystem at the start of the disk with no
+    # partition table. Windows Setup scans removable volumes for the answer
+    # file, and it finds this layout where a partitioned image can hide the
+    # volume from it. The firmware reads either one, so the boot script is
+    # unaffected.
+    #
+    # The resource forks that macOS writes beside each file are dropped, so the
+    # volume holds the two files it should and nothing else.
     hdiutil create -quiet -srcfolder "$work" -fs MS-DOS -volname ANSWERS \
-        -format UDRW -ov "$DIR/answers" || die "the answer disk did not build"
-    say "wrote the answer disk $DIR/answers.dmg"
+        -layout NONE -format UDRW -ov "$DIR/answers" ||
+        die "the answer disk did not build"
+    say "wrote the answer disk $DIR/answers.dmg, with the boot script"
 }
 
 windows_create() {
@@ -355,7 +380,7 @@ windows_install() {
 
     rm -f "$DIR/monitor.sock"
     qemu_run \
-        -device usb-storage,drive=install \
+        -device usb-storage,drive=install,bootindex=0 \
         -drive "file=$WINDOWS_ISO,if=none,id=install,media=cdrom,readonly=on" \
         -device usb-storage,drive=answers \
         -drive "file=$DIR/answers.dmg,if=none,id=answers,format=raw" \
@@ -389,6 +414,19 @@ windows_install() {
 # those drivers. The Windows guest takes NVMe and USB, because Windows on ARM64
 # carries neither virtio driver, and an installer on a virtio disk finds no
 # disk to install onto.
+#
+# The boot order is stated rather than left to the firmware. Without a
+# `bootindex` the firmware finds no boot option it likes and drops to its own
+# interactive shell, where the installer never runs and a blind keypress lands
+# in a shell prompt. The image gets index 0 and the empty disk gets index 1, so
+# the first boot takes the installer and every later boot takes the disk.
+#
+# The Windows guest also needs a display adapter named, and the reason cost an
+# hour. The `virt` machine provides no framebuffer of its own, so a guest with
+# no adapter gives the firmware nowhere to draw. The screen then stays black
+# with a cursor, the installer never appears, and the whole thing reads as a
+# slow install rather than as a guest that never started one. `ramfb` is the
+# adapter, and the firmware and Windows Setup both drive it through UEFI.
 qemu_run() {
     if [ "$GUEST" = linux ]; then
         qemu-system-aarch64 \
@@ -408,7 +446,8 @@ qemu_run() {
             -drive "if=pflash,format=raw,readonly=on,file=$FIRMWARE" \
             -drive "if=pflash,format=raw,file=$VARS" \
             -drive "file=$DISK,if=none,id=boot,format=qcow2" \
-            -device nvme,drive=boot,serial=fidelity \
+            -device nvme,drive=boot,serial=fidelity,bootindex=1 \
+            -device ramfb \
             -device qemu-xhci -device usb-kbd -device usb-tablet \
             -device usb-net,netdev=net0 \
             -netdev "user,id=net0,hostfwd=tcp::$PORT-:22" \
