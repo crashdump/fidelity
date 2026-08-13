@@ -452,6 +452,11 @@ fi
 #
 # A Windows probe answers only on Windows, so this whole section skips
 # elsewhere. The cross-check above still builds the crate from every machine.
+#
+# Two machines reach these controls. A Windows runner is one, and the guest
+# that `controls/windows-vm.sh` manages is the other. The Linux controls
+# already take the second shape, because Docker on a Mac is a Linux virtual
+# machine, so this adds no pattern that the harness did not hold.
 WINDOWS=no
 case "$(uname -s)" in
     MINGW* | MSYS* | CYGWIN*) WINDOWS=yes ;;
@@ -540,8 +545,10 @@ if [ "$WINDOWS" = yes ] && [ -n "$WINDOWS_CC" ]; then
 else
     if [ "$WINDOWS" = yes ]; then
         WHY="no cl, clang, or gcc on the path, so no control compiles"
+    elif "$ROOT/evidence/controls/windows-vm.sh" status > /dev/null 2>&1; then
+        WHY="a Windows guest answers, and the harness does not drive it yet"
     else
-        WHY="this machine does not run Windows"
+        WHY="this machine runs no Windows, and controls/windows-vm.sh has no guest"
     fi
     for control in windows-probe-tests cost-windows \
         inject-clean-windows inject-hostile-windows \
