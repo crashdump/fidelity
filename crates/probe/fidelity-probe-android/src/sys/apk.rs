@@ -101,9 +101,17 @@ pub(crate) fn signer_certificate() -> Result<Vec<u8>, &'static str> {
 
 /// The package that this process runs.
 ///
-/// Android names an application process after its package. A process that
-/// declares `android:process` gets the package, a colon, and a suffix, so the
-/// reader stops at the colon.
+/// Android names an application process after its package. A component that
+/// declares a private `android:process` gets the package, a colon, and a
+/// suffix, so the reader stops at the colon.
+///
+/// A component that declares a global `android:process` gets that name alone,
+/// and the name holds no package. This reader answers the process name, no
+/// mapped archive names it, and the capability reports a gap. The answer fails
+/// closed, and it is still wrong: a valid application that runs a component
+/// that way cannot bind an identity. The package manager holds the answer, and
+/// a library cannot reach it, so a correct fix needs a rule that selects the
+/// archive without naming the package first.
 ///
 /// The kernel separates the command line with zero bytes, and the first entry
 /// is the name.

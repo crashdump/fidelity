@@ -43,7 +43,7 @@ const DEBUGGER_ALLOWED: &str =
 const NOT_A_RELEASE_KEY: &str = "the system reports ro.build.tags without a vendor release key";
 
 /// What an empty property store reports.
-const NO_PROPERTY: &str = "the property store stated neither ro.debuggable nor ro.build.tags";
+const NO_PROPERTY: &str = "the property store did not state both ro.debuggable and ro.build.tags";
 
 impl Device for AndroidEnvironment {
     fn system_build(&self) -> Observation<SystemBuild> {
@@ -65,18 +65,24 @@ impl Device for AndroidEnvironment {
 ///
 /// # Errors
 ///
-/// Returns the reason when the store stated nothing. Every Android system
-/// holds both properties, so an empty store is a failed read and never a
-/// released build.
+/// Returns the reason when no single property proves a development build and
+/// the store did not state both. Every Android system holds both, so an absent
+/// property is a failed read and never a released build.
 fn judge(debuggable: Option<&str>, tags: Option<&str>) -> Result<SystemBuild, &'static str> {
-    if debuggable.is_none() && tags.is_none() {
-        return Err(NO_PROPERTY);
-    }
+    // One property alone proves a development build, so these two answers
+    // stand whatever the other property says, and a failed read of the other
+    // one changes nothing.
     if debuggable == Some(DEBUGGABLE_OPEN) {
         return Ok(development(DEBUGGER_ALLOWED));
     }
     if tags.is_some_and(names_a_development_key) {
         return Ok(development(NOT_A_RELEASE_KEY));
+    }
+    // Only `Released` is left, and that answer needs both inputs. Android
+    // supplies both, so one absent property is a failed read. Reporting it as
+    // released would turn a broken probe into a clean control.
+    if debuggable.is_none() || tags.is_none() {
+        return Err(NO_PROPERTY);
     }
     Ok(SystemBuild::Released)
 }
@@ -167,5 +173,14 @@ mod tests {
             panic!("one stated property is never a failed read")
         };
         assert!(matches!(build, SystemBuild::Development { .. }));
+    }
+
+    #[test]
+    fn one_absent_property_never_reports_a_release() {
+        // The other property looks benign, and that is exactly the case that
+        // must not read as clean. Android states both, so an absent one is a
+        // failed read, and only a stated pair proves a released build.
+        assert!(judge(None, Some("release-keys")).is_err());
+        assert!(judge(Some("0"), None).is_err());
     }
 }
