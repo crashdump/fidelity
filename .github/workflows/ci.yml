@@ -1,0 +1,42 @@
+# The gate runs `evidence/run.sh`, and it states no command of its own.
+#
+# `docs/plan/06-delivery.md` holds the command list, and the harness runs it. A
+# second copy here would drift from that one, and the copy that drifts is the
+# one that decides whether a change lands.
+#
+# A runner reaches no device, no simulator, and no container, so the harness
+# records a `skipped` row for each of those with the reason. That is the point:
+# a green run here is not a claim that every platform was exercised, and the
+# log says which ones were not.
+name: gate
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the toolchains that the harness asks for
+        run: |
+          set -eu
+          # The minimum version comes from the manifest, so this file states no
+          # version of its own and the two cannot disagree.
+          msrv=$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
+          rustup toolchain install "$msrv" --profile minimal
+          # The sanitizers build the standard library from source.
+          rustup toolchain install nightly --profile minimal --component rust-src
+          for target in aarch64-apple-ios aarch64-linux-android \
+                        aarch64-unknown-linux-gnu x86_64-pc-windows-msvc; do
+              rustup target add "$target"
+              rustup target add --toolchain "$msrv" "$target"
+          done
+
+      - name: Run the gate
+        run: evidence/run.sh
