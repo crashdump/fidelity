@@ -415,7 +415,7 @@ that is what a host ships.
 ```sh
 cargo run --release --example cost -p fidelity-probe-apple
 cargo run --release --example cost -p fidelity-probe-apple  --target aarch64-apple-ios-sim
-cargo run --release --example cost -p fidelity-probe-linux            # inside the container
+cargo run --release --example cost -p fidelity-probe-linux            # inside the guest
 cargo run --release --example cost -p fidelity-probe-android --target aarch64-linux-android
 ```
 
