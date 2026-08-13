@@ -116,7 +116,9 @@ rustdoc() {
     ! printf '%s\n' "$output" | grep -q '^warning'
 }
 
-run host workspace-tests cargo test --workspace
+# `--all-features` reaches the optional `serde` surface. A platform is never a
+# feature, so this enables no platform code and hides no target behind a flag.
+run host workspace-tests cargo test --workspace --all-features
 run host workspace-lints cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 run host workspace-format cargo fmt --check
 run host workspace-rustdoc rustdoc
@@ -132,9 +134,17 @@ guarded_unbound() {
 }
 run host guarded-unbound guarded_unbound
 
-refute host guarded-no-signer 'IdentityBindingUnavailable' \
-    env FIDELITY_BUILD_SEED=test FIDELITY_CODE_IDENTITY=apple:ABCDE12345 \
-    cargo run --quiet --example guarded -p fidelity
+# This one binds the build to a team that did not sign the image, and then runs
+# it, so it needs a host whose own target takes Apple material. Another host
+# refuses the same value while it builds, which is a different answer, and
+# `guarded-platform-without-identity` already covers that one by target.
+if [ "$(uname -s)" = Darwin ]; then
+    refute host guarded-no-signer 'IdentityBindingUnavailable' \
+        env FIDELITY_BUILD_SEED=test FIDELITY_CODE_IDENTITY=apple:ABCDE12345 \
+        cargo run --quiet --example guarded -p fidelity
+else
+    skip host guarded-no-signer "the build binds Apple material, and this machine does not run macOS"
+fi
 refute host guarded-unnamed-kind 'names no material kind' \
     env FIDELITY_BUILD_SEED=test FIDELITY_CODE_IDENTITY=ABCDE12345 \
     cargo check --quiet -p fidelity
@@ -154,8 +164,31 @@ refute host guarded-sha1-digest 'and this one has 40' \
     env FIDELITY_BUILD_SEED=test FIDELITY_CODE_IDENTITY="android:${DIGEST%????????????????????????}" \
     cargo check --quiet -p fidelity --target aarch64-linux-android
 
-# The extraction ceiling. The first must recover both constants, and the second
-# must recover neither, because a control that recovers with any input is
+# The floor, which holds on every target: the artifact carries no guarded
+# literal in the clear. The extraction control below states the ceiling, and
+# this states the floor. A compiler that folded the expansion would put the
+# literal straight into the binary, and nothing else here would notice.
+plaintext() {
+    env FIDELITY_BUILD_SEED=test FIDELITY_CODE_IDENTITY=none \
+        cargo build --release --quiet --example guarded -p fidelity || return 1
+    artifact=$ROOT/target/release/examples/guarded
+
+    # The example prints this label, so the scan must find it. A scan that
+    # found nothing at all would otherwise pass this control by failing.
+    grep -aqF 'host: ' "$artifact" || return 1
+
+    for literal in api.example.com /v1/session/open; do
+        if grep -aqF "$literal" "$artifact"; then
+            echo "the artifact holds $literal in the clear"
+            return 1
+        fi
+    done
+    echo "neither guarded literal is in the artifact in the clear"
+}
+run host guarded-no-plaintext plaintext
+
+# The extraction ceiling. The first must recover a constant, and the second
+# must recover none, because a control that recovers with any input is
 # measuring itself.
 extract() {
     env FIDELITY_BUILD_SEED=test FIDELITY_CODE_IDENTITY=none \
@@ -205,7 +238,11 @@ fi
 MSRV=$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' "$ROOT/Cargo.toml" | head -1)
 if [ -n "$MSRV" ] && rustup run "$MSRV" rustc --version > /dev/null 2>&1; then
     msrv() {
-        cargo "+$MSRV" check --workspace --all-targets || return 1
+        # `--all-features` reaches the optional `serde` surface, so a bump in
+        # that crate cannot raise the floor without this row noticing. The
+        # cross-checks below stay lean, because that surface is portable Rust
+        # and holds no platform code.
+        cargo "+$MSRV" check --workspace --all-targets --all-features || return 1
         for target in $TARGETS; do
             cargo "+$MSRV" check --workspace --target "$target" || return 1
         done

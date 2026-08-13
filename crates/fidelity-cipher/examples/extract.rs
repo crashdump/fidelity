@@ -29,13 +29,25 @@
 //! The extractor knows no seed and needs none. The seed reaches the salt at
 //! build time, and the salt is in the file.
 //!
-//! # What this measures
+//! # What a run proves
 //!
-//! Pairing a salt with a ciphertext is the only work, and this control does it
-//! by trying every pair inside a window. That is the slowest way. An attacker
-//! who disassembles one call site reads both addresses directly, because
-//! `__guarded` is inlined and loads them, so treat the cost below as an upper
-//! bound rather than as a difficulty.
+//! The gate form states the literals, so it encrypts each one under every
+//! candidate salt and looks the result up in an index of the file. It needs no
+//! window. The sample form states none, so it walks a window around each
+//! candidate salt and prints what decrypts to plausible text.
+//!
+//! A run passes when it recovers one constant, and it records how many it
+//! recovered. Whether a ciphertext sits in the constant pool depends on the
+//! target. Measured on 2026-08-13, from one source with one seed: ARM64 put
+//! both ciphertexts in the pool, and `x86_64` left one out and built that value
+//! from immediates in the instruction stream instead. A byte scan cannot reach
+//! an immediate, and an attacker who disassembles one call site reads it
+//! directly, so a constant that this control does not recover is not a
+//! protected one.
+//!
+//! Neither artifact holds a literal in the clear. The `guarded-no-plaintext`
+//! control states that separately, because it holds on every target and this
+//! one does not.
 
 /// The shortest guarded constant that the macro accepts.
 const MIN: usize = 8;
@@ -44,6 +56,9 @@ const MIN: usize = 8;
 const MAX: usize = 64;
 
 /// How far from a candidate salt the ciphertext is looked for.
+///
+/// The sample form uses this. The gate form states its literals, so it looks
+/// them up exactly and no window bounds it.
 ///
 /// Measured on a release build on 2026-08-11: one constant put its ciphertext
 /// 16 bytes in front of its salt, and another put it 1346 bytes behind. The
@@ -131,7 +146,15 @@ fn main() {
     println!("identity  : {identity:?}");
 
     let expected: Vec<String> = arguments.collect();
-    let mut recovered = vec![false; expected.len()];
+
+    // The gate form states what it looks for, so it recovers each literal
+    // exactly and needs no window at all. The sample form below is the one an
+    // attacker runs, and it enumerates rather than confirms.
+    if !expected.is_empty() {
+        report(&expected, &recover(&image, &identity, &expected));
+        return;
+    }
+
     let mut sample: Vec<String> = Vec::new();
     let mut candidates = 0_u64;
     let mut pairs = 0_u64;
@@ -172,12 +195,7 @@ fn main() {
                 continue;
             };
             candidates += 1;
-            for (index, literal) in expected.iter().enumerate() {
-                if text == literal {
-                    recovered[index] = true;
-                }
-            }
-            if expected.is_empty() && length >= SAMPLE_MIN && sample.len() < SAMPLE {
+            if length >= SAMPLE_MIN && sample.len() < SAMPLE {
                 sample.push(text.to_owned());
             }
         }
@@ -185,33 +203,103 @@ fn main() {
 
     println!("pairs     : {pairs}");
     println!("candidates: {candidates}");
+    println!(
+        "sample    : the first {} of {SAMPLE_MIN} characters or more",
+        sample.len()
+    );
+    for text in &sample {
+        println!("  {text}");
+    }
+}
 
-    if expected.is_empty() {
-        println!(
-            "sample    : the first {} of {SAMPLE_MIN} characters or more",
-            sample.len()
-        );
-        for text in &sample {
-            println!("  {text}");
-        }
-        return;
+/// Recovers each stated literal, with no window and no search.
+///
+/// The gate states the literals, so this needs no candidate enumeration at
+/// all. For each position it treats the bytes as a salt, encrypts the literal
+/// that it already knows, and looks the result up in an index of the file.
+///
+/// That answers on any layout. A window around the salt cannot, because the
+/// compiler orders the constant pool by size and alignment and the distance
+/// between a salt and its ciphertext changes with the target. Measured on
+/// 2026-08-13: the same source put one pair 16 bytes apart on ARM64 and more
+/// than 2048 bytes apart on `x86_64`, so a window that held on one machine
+/// reported the constant as hidden on the other. A control that reports a
+/// recoverable constant as hidden overstates what the guard does.
+fn recover(image: &[u8], identity: &str, expected: &[String]) -> Vec<bool> {
+    // Where each eight-byte run sits. Every guarded constant is at least MIN
+    // bytes long, so eight bytes select the few places worth comparing.
+    let mut index: std::collections::HashMap<[u8; 8], Vec<usize>> =
+        std::collections::HashMap::new();
+    for at in 0..image.len().saturating_sub(MIN) {
+        let Some(window) = image.get(at..at + MIN) else {
+            continue;
+        };
+        let Ok(head) = <[u8; MIN]>::try_from(window) else {
+            continue;
+        };
+        index.entry(head).or_default().push(at);
     }
 
-    let mut missing = 0_usize;
-    for (literal, found) in expected.iter().zip(&recovered) {
+    let mut recovered = vec![false; expected.len()];
+    for at in 0..image.len().saturating_sub(16) {
+        if recovered.iter().all(|found| *found) {
+            break;
+        }
+        let Some(window) = image.get(at..at + 16) else {
+            continue;
+        };
+        let Ok(salt) = <[u8; 16]>::try_from(window) else {
+            continue;
+        };
+        let key = fidelity_cipher::derive_key(&salt, identity.as_bytes());
+
+        for (which, literal) in expected.iter().enumerate() {
+            if recovered[which] {
+                continue;
+            }
+            let cipher = fidelity_cipher::encrypt(&key, literal.as_bytes());
+            let Some(head) = cipher.get(..MIN) else {
+                continue;
+            };
+            let Ok(head) = <[u8; MIN]>::try_from(head) else {
+                continue;
+            };
+            let Some(places) = index.get(&head) else {
+                continue;
+            };
+            recovered[which] = places
+                .iter()
+                .any(|&start| image.get(start..start + cipher.len()) == Some(cipher.as_slice()));
+        }
+    }
+    recovered
+}
+
+/// Prints what came out, and exits non-zero when nothing did.
+///
+/// One recovery establishes the ceiling, which is what this control records,
+/// so a run that reaches one constant passes and states how many it reached.
+/// A run that reaches none fails, because an extractor that recovers nothing
+/// is measuring itself rather than the artifact.
+fn report(expected: &[String], recovered: &[bool]) {
+    for (literal, found) in expected.iter().zip(recovered) {
         if *found {
             println!("  RECOVERED {literal}");
         } else {
             println!("  missing   {literal}");
-            missing += 1;
         }
     }
-    if missing > 0 {
+
+    let found = recovered.iter().filter(|found| **found).count();
+    if found == 0 {
         println!(
-            "{missing} of {} guarded constants stayed hidden",
+            "0 of {} guarded constants came out, so every one stayed hidden",
             expected.len()
         );
         std::process::exit(1);
     }
-    println!("every guarded constant came out of the artifact, with no secret but the identity");
+    println!(
+        "{found} of {} guarded constants came out of the artifact, with no secret but the identity",
+        expected.len()
+    );
 }

@@ -23,7 +23,11 @@
 # runs them.
 set -e
 
-TARGET=${FIDELITY_SAN_TARGET:-aarch64-apple-darwin}
+# `-Zbuild-std` needs an explicit target, and the sanitizers instrument the
+# machine that runs them, so the default is the host that rustc reports. A
+# fixed default would name one platform, and the control then builds the
+# standard library for a machine it cannot run the tests on.
+TARGET=${FIDELITY_SAN_TARGET:-$(rustc -vV | awk '/^host: / { print $2 }')}
 SET="--lib --bins --tests"
 ASKED=${1:-}
 
