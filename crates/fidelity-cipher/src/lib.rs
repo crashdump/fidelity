@@ -29,7 +29,7 @@
 pub mod binding;
 mod sha256;
 
-pub use sha256::sha256;
+pub use sha256::{hex, sha256};
 
 /// The lowest byte of the alphabet, which is the space character.
 pub const FIRST: u8 = 0x20;

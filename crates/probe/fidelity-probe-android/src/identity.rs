@@ -40,7 +40,7 @@ impl Identity for AndroidEnvironment {
         // application, so the signer stays absent and the read never fails.
         let signer = match digest() {
             Ok(digest) => {
-                let text = hex(&digest);
+                let text = fidelity_cipher::hex(&digest);
                 let label = label(&text);
                 Some(Signer::new(text.into_bytes(), label))
             }
@@ -97,33 +97,6 @@ fn digest() -> Result<[u8; 32], &'static str> {
     apk::signer_certificate().map(|certificate| fidelity_cipher::sha256(&certificate))
 }
 
-/// The digest as lowercase hexadecimal.
-///
-/// The signer material is this text, and not the 32 raw bytes.
-/// [`Signer::material`] states why: a build names its identity in
-/// `FIDELITY_CODE_IDENTITY`, that variable carries a string, and a raw digest
-/// is almost never valid UTF-8. A probe that returned the raw bytes would make
-/// a bound build impossible on Android, and every guarded constant would
-/// decrypt to garbage with no error.
-///
-/// Hexadecimal is also the form that a host already holds, because
-/// `keytool -list -v` and `apksigner` both print the digest that way.
-fn hex(digest: &[u8; 32]) -> String {
-    let mut text = String::with_capacity(64);
-    for byte in digest {
-        text.push(digit(byte >> 4));
-        text.push(digit(byte & 0x0f));
-    }
-    text
-}
-
-/// One lowercase hexadecimal digit.
-///
-/// The fallback never runs, because the caller passes one nibble.
-fn digit(nibble: u8) -> char {
-    char::from_digit(u32::from(nibble), 16).unwrap_or('0')
-}
-
 /// A readable form of the digest, for evidence.
 ///
 /// The label holds the first four bytes only. The whole digest is public, and
@@ -137,7 +110,7 @@ mod tests {
     use fidelity_core::{Identity, IdentityMatch, Observation, PlatformTrust};
     use fidelity_types::{CertificateSha256, Choice, ExpectedIdentity};
 
-    use super::{AndroidEnvironment, compare, hex, label};
+    use super::{AndroidEnvironment, compare, label};
 
     /// The digest of the recorded test archive, which
     /// `evidence/controls/make-apk.sh` builds and `keytool -list -v` prints.
@@ -209,7 +182,10 @@ mod tests {
 
     #[test]
     fn the_label_states_the_first_bytes_of_the_digest() {
-        assert_eq!(label(&hex(&RECORDED)), "certificate sha256 2b16c14d");
+        assert_eq!(
+            label(&fidelity_cipher::hex(&RECORDED)),
+            "certificate sha256 2b16c14d"
+        );
     }
 
     #[test]
@@ -224,7 +200,7 @@ mod tests {
 
     #[test]
     fn the_material_names_the_whole_digest_as_text() {
-        let text = hex(&RECORDED);
+        let text = fidelity_cipher::hex(&RECORDED);
         assert_eq!(text.len(), 64);
         assert!(text.starts_with("2b16c14d"), "{text}");
     }

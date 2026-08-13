@@ -9,9 +9,7 @@
 //!
 //! # Status
 //!
-//! The `baseline`, `injection`, and `tracer` capabilities answer. `identity`
-//! waits for the Authenticode reader, so it reports `Unsupported` through the
-//! trait default.
+//! The `baseline`, `injection`, `tracer`, and `identity` capabilities answer.
 //!
 //! No release calls this platform supported. That label needs real clean and
 //! hostile evidence for every capability above, and
@@ -28,11 +26,12 @@
 #![cfg(target_os = "windows")]
 
 mod baseline;
+mod identity;
 mod injection;
 mod sys;
 mod tracer;
 
-use fidelity_core::{Device, Environment, Identity, Lifecycle};
+use fidelity_core::{Device, Environment, Lifecycle};
 use fidelity_types::Platform;
 
 /// The Windows view of the running process.
@@ -58,12 +57,6 @@ impl Environment for WindowsEnvironment {
         Platform::Windows
     }
 }
-
-// `Baseline`, `Injection`, and `Tracer` carry real platform code, so each one
-// lives in the module that carries its name. `Identity` waits for the
-// Authenticode reader. The empty `impl` states that gap, and the trait default
-// reports `Unsupported` until platform code replaces it.
-impl Identity for WindowsEnvironment {}
 
 // Windows cannot answer `device`. The category reports the loss of a privilege
 // boundary that the operating system holds against its own user, and Windows

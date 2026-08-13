@@ -92,6 +92,7 @@ dependencies = [
 name = "fidelity-probe-windows"
 version = "0.1.0"
 dependencies = [
+ "fidelity-cipher",
  "fidelity-core",
  "fidelity-types",
 ]

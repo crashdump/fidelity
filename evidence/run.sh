@@ -475,9 +475,22 @@ done
 
 if [ "$WINDOWS" = yes ] && [ -n "$WINDOWS_CC" ]; then
     EXE=$ROOT/target/debug/examples
+
+    # A native Windows program takes a native path. A shell here is Git Bash,
+    # which reports `/d/a/fidelity`, and `CreateProcess` cannot open that. The
+    # controls take a path as an argument, so every one of them needs the
+    # native form. `cygpath` ships with that shell and does the conversion.
+    native() {
+        if command -v cygpath > /dev/null 2>&1; then
+            cygpath -w "$1"
+        else
+            printf '%s' "$1"
+        fi
+    }
+
     build_control() {
-        source=$ROOT/evidence/controls/$1.c
-        binary=$OUT/$1.exe
+        source=$(native "$ROOT/evidence/controls/$1.c")
+        binary=$(native "$OUT/$1.exe")
         case $WINDOWS_CC in
             cl) (cd "$OUT" && cl /nologo /W4 "/Fe:$binary" "$source") > /dev/null ;;
             *) "$WINDOWS_CC" -O1 -o "$binary" "$source" ;;
@@ -497,7 +510,8 @@ if [ "$WINDOWS" = yes ] && [ -n "$WINDOWS_CC" ]; then
     inject_hostile_windows() {
         cargo build --quiet --example inject -p fidelity || return 1
         build_control inject-windows || return 1
-        "$OUT/inject-windows.exe" "$EXE/inject.exe" | grep 'unaccounted_code: Medium'
+        "$OUT/inject-windows.exe" "$(native "$EXE/inject.exe")" |
+            grep 'unaccounted_code: Medium'
     }
 
     # The runtime-baseline pair. The hostile half maps into a process that
@@ -521,7 +535,7 @@ if [ "$WINDOWS" = yes ] && [ -n "$WINDOWS_CC" ]; then
     tracer_at_start_windows() {
         cargo build --quiet --example tracer -p fidelity || return 1
         build_control attach-windows || return 1
-        "$OUT/attach-windows.exe" "$EXE/tracer.exe" |
+        "$OUT/attach-windows.exe" "$(native "$EXE/tracer.exe")" |
             grep 'protected operation: denied'
     }
     tracer_attaches_windows() {

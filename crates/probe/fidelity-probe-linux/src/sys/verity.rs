@@ -32,18 +32,22 @@ const HASH_SHA256: u16 = 1;
 ///
 /// SHA-512 is the longest algorithm the header names, so this covers every
 /// value the kernel can return, and the call reports which one it used.
-const MAX_DIGEST: usize = 64;
+const MAX_DIGEST: u16 = 64;
 
 /// `struct fsverity_digest`, with its flexible array given a fixed bound.
+///
+/// The field that holds the bytes is named for what it carries rather than
+/// after the structure, because the structure is the measurement and the field
+/// is its bytes.
 ///
 /// The header ends the structure with `__u8 digest[]`, so a caller allocates
 /// the header and the digest as one block. This layout is that block.
 #[repr(C)]
-struct Digest {
+struct Measurement {
     algorithm: u16,
     /// The buffer length going in, and the digest length coming out.
     size: u16,
-    digest: [u8; MAX_DIGEST],
+    bytes: [u8; MAX_DIGEST as usize],
 }
 
 unsafe extern "C" {
@@ -73,21 +77,21 @@ pub(crate) fn measure(path: &str) -> Verity {
         };
     };
 
-    let mut digest = Digest {
+    let mut measured = Measurement {
         algorithm: 0,
-        size: MAX_DIGEST as u16,
-        digest: [0; MAX_DIGEST],
+        size: MAX_DIGEST,
+        bytes: [0; MAX_DIGEST as usize],
     };
 
-    // SAFETY: `digest` is a live local with the layout that the kernel header
-    // states, and its `size` field states the length of the buffer that
+    // SAFETY: `measured` is a live local with the layout that the kernel
+    // header states, and its `size` field states the length of the buffer that
     // follows, so the kernel writes inside it. The descriptor belongs to the
     // open file above, and it outlives the call.
     let result = unsafe {
         ioctl(
             file.as_raw_fd(),
             FS_IOC_MEASURE_VERITY,
-            (&raw mut digest).cast::<c_void>(),
+            (&raw mut measured).cast::<c_void>(),
         )
     };
 
@@ -102,7 +106,7 @@ pub(crate) fn measure(path: &str) -> Verity {
     }
 
     Verity::Enabled {
-        sha256: digest.algorithm == HASH_SHA256,
+        sha256: measured.algorithm == HASH_SHA256,
     }
 }
 

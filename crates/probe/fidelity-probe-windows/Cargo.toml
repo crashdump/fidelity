@@ -16,6 +16,7 @@ default-target = "x86_64-pc-windows-msvc"
 targets = []
 
 [target.'cfg(target_os = "windows")'.dependencies]
+fidelity-cipher.workspace = true
 fidelity-core.workspace = true
 fidelity-types.workspace = true
 

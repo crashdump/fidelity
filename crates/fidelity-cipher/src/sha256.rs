@@ -233,3 +233,45 @@ mod tests {
         assert_ne!(sha256(b"abc"), sha256(b"abd"));
     }
 }
+
+/// One digest as lowercase hexadecimal.
+///
+/// A build states a code identity in an environment variable, which carries a
+/// string, so a probe that reports a binary digest has to convert it before a
+/// build can name it. `Signer::material` states that rule. Two probes report a
+/// certificate digest, so the conversion lives beside the function that
+/// produces the bytes rather than once in each of them.
+#[must_use]
+pub fn hex(digest: &[u8]) -> String {
+    fn digit(nibble: u8) -> char {
+        char::from_digit(u32::from(nibble), 16).unwrap_or('0')
+    }
+
+    let mut text = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        text.push(digit(byte >> 4));
+        text.push(digit(byte & 0x0f));
+    }
+    text
+}
+
+#[cfg(test)]
+mod hex_tests {
+    use super::hex;
+
+    #[test]
+    fn every_byte_becomes_two_lowercase_digits() {
+        assert_eq!(hex(&[0xAB, 0x0F, 0x00]), "ab0f00");
+    }
+
+    #[test]
+    fn an_empty_digest_becomes_empty_text() {
+        assert_eq!(hex(&[]), "");
+    }
+
+    #[test]
+    fn a_full_digest_reads_sixty_four_characters() {
+        // The length that a build states, and that the identity parser checks.
+        assert_eq!(hex(&[0; 32]).len(), 64);
+    }
+}

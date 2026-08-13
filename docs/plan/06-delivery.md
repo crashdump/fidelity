@@ -135,7 +135,7 @@ The marker states what the code does today, and a test enforces every cell. See
 
 | Capability | Category | macOS | iOS | Windows | Linux | Android |
 |---|---|---|---|---|---|---|
-| `identity` | `Integrity` | yes | yes | plan | yes | yes |
+| `identity` | `Integrity` | yes | yes | yes | yes | yes |
 | `baseline` | `Integrity` | yes | yes | yes | yes | yes |
 | `tracer` | `Debugging` | yes | yes | yes | yes | yes |
 | `injection` | `Instrumentation` | no | no | yes | yes | yes |
