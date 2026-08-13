@@ -355,53 +355,60 @@ fi
 
 # ------------------------------------------------------------------------ Linux
 
-# The container keeps its own target directory, in a named volume, because the
-# host and the container fight over one target/ and because a cold build in a
-# container costs minutes on every run.
-if docker info > /dev/null 2>&1; then
+# The controls run in the guest that `controls/vm.sh` manages, and not in a
+# container. A container shares the kernel of its host, so it has no filesystem
+# of its own and fs-verity cannot be enabled there, and it needed
+# `--cap-add=SYS_PTRACE` for the tracer controls. A guest owns its kernel and
+# its disk, so both of those answers become real.
+#
+# The workspace arrives over 9p at /work, which is where the container mounted
+# it, so a control reads one path either way. The build directory stays on the
+# disk of the guest, because a build over a shared filesystem is far slower.
+if "$ROOT/evidence/controls/vm.sh" linux status > /dev/null 2>&1; then
     linux() {
-        docker run --rm --cap-add=SYS_PTRACE \
-            -v "$ROOT:/work" -w /work -v fidelity-evidence-target:/tmp/target \
-            -e FIDELITY_BUILD_SEED=test -e FIDELITY_CODE_IDENTITY=none \
-            -e CARGO_TARGET_DIR=/tmp/target rust:slim "$@"
+        "$ROOT/evidence/controls/vm.sh" linux run "cd /work &&
+            . \$HOME/.cargo/env &&
+            export FIDELITY_BUILD_SEED=test FIDELITY_CODE_IDENTITY=none \
+                   CARGO_TARGET_DIR=/var/tmp/target &&
+            $*"
     }
     # The unaccounted-code pair. A loader that maps a library from a file must
     # not trip the detector, and an agent that maps anonymous executable memory
-    # must. The container ships `cc`, so it builds each agent itself.
+    # must. The guest holds `build-essential`, so it builds each agent itself.
     inject_clean() {
-        linux sh -c 'cargo run --quiet --example inject -p fidelity' |
+        linux 'cargo run --quiet --example inject -p fidelity' |
             grep 'unaccounted_code: clean'
     }
     inject_hostile() {
-        linux sh -c 'cc -shared -fPIC -o /tmp/agent.so evidence/controls/agent.c &&
+        linux 'cc -shared -fPIC -o /tmp/agent.so evidence/controls/agent.c &&
             LD_PRELOAD=/tmp/agent.so cargo run --quiet --example inject -p fidelity' |
             grep 'unaccounted_code: Medium'
     }
     linux_late() {
-        linux sh -c "cc -shared -fPIC -o /tmp/delayed.so evidence/controls/delayed.c -lpthread &&
+        linux "cc -shared -fPIC -o /tmp/delayed.so evidence/controls/delayed.c -lpthread &&
             cargo build --quiet --example late -p fidelity &&
-            LD_PRELOAD=$1 /tmp/target/debug/examples/late"
+            LD_PRELOAD=$1 /var/tmp/target/debug/examples/late"
     }
     baseline_hostile_linux() { linux_late /tmp/delayed.so; }
     baseline_clean_linux() { linux_late ''; }
 
-    # The tracer set. The container carries no debugger, so `attach.c` is the
-    # tracer, in both of its forms.
+    # The tracer set. `attach.c` is the tracer, in both of its forms, and it
+    # needs no capability grant in a guest.
     tracer_clean_linux() {
-        linux sh -c 'cargo build --quiet --example tracer -p fidelity &&
-            /tmp/target/debug/examples/tracer' | grep 'tracer_present: clean'
+        linux 'cargo build --quiet --example tracer -p fidelity &&
+            /var/tmp/target/debug/examples/tracer' | grep 'tracer_present: clean'
     }
     tracer_at_start_linux() {
-        linux sh -c 'cc -o /tmp/attach evidence/controls/attach.c &&
+        linux 'cc -o /tmp/attach evidence/controls/attach.c &&
             cargo build --quiet --example tracer -p fidelity &&
-            /tmp/attach /tmp/target/debug/examples/tracer' |
+            /tmp/attach /var/tmp/target/debug/examples/tracer' |
             grep 'protected operation: denied'
     }
     tracer_attaches_linux() {
-        linux sh -c 'cc -o /tmp/attach evidence/controls/attach.c &&
+        linux 'cc -o /tmp/attach evidence/controls/attach.c &&
             cargo build --quiet --example attach -p fidelity &&
             sh evidence/controls/trace-after-start.sh \
-                /tmp/target/debug/examples/attach /tmp/attach'
+                /var/tmp/target/debug/examples/attach /tmp/attach'
     }
 
     run Linux linux-probe-tests linux cargo test -p fidelity-probe-linux
@@ -415,18 +422,18 @@ if docker info > /dev/null 2>&1; then
     PLUG='printf "int plugin_entry(void){return 7;}\n" > /tmp/plug.c &&
         cc -shared -fPIC -o /tmp/plug.so /tmp/plug.c'
     plugin_load_linux() {
-        counts=$(linux sh -c "$PLUG &&
+        counts=$(linux "$PLUG &&
             cc -o /tmp/plugin-load evidence/controls/plugin-load-linux.c -ldl &&
             /tmp/plugin-load /tmp/plug.so") || return 1
         printf '%s\n' "$counts"
         [ "$(printf '%s\n' "$counts" | grep -c '(+1)')" -eq 2 ]
     }
     legitimate_plugin_linux() {
-        linux sh -c "$PLUG &&
+        linux "$PLUG &&
             cc -shared -fPIC -o /tmp/legitimate.so evidence/controls/legitimate.c -ldl -lpthread &&
             cargo build --quiet --example late -p fidelity &&
             LD_PRELOAD=/tmp/legitimate.so FIDELITY_PLUGIN=/tmp/plug.so \
-                /tmp/target/debug/examples/late"
+                /var/tmp/target/debug/examples/late"
     }
 
     run Linux tracer-clean-linux tracer_clean_linux
@@ -439,7 +446,7 @@ else
         baseline-hostile-linux baseline-clean-linux \
         tracer-clean-linux tracer-at-start-linux tracer-attaches-linux \
         plugin-load-linux legitimate-plugin-linux; do
-        skip Linux "$control" "no docker daemon answers"
+        skip Linux "$control" "no Linux guest answers: evidence/controls/vm.sh linux start"
     done
 fi
 

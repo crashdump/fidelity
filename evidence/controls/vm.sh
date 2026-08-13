@@ -4,7 +4,7 @@
 #     vm.sh <guest> <command>
 #
 #     guest:    linux | windows
-#     command:  create | start | stop | status | run <command> | provision
+#     command:  create | install | start | stop | status | run <cmd> | provision
 #
 # Why this exists. The controls for a platform have to run on that platform,
 # and this machine runs one of the five. The Linux controls already took this
@@ -69,6 +69,10 @@ setup() {
             CORES=${FIDELITY_WINDOWS_CORES:-4}
             DISK_SIZE=${FIDELITY_WINDOWS_DISK:-64G}
             USER_NAME=fidelity
+            # The guest holds no secret and reaches no network but this port,
+            # and the answer file carries the value either way, so hiding it
+            # here would state nothing.
+            WINDOWS_PASSWORD=fidelity
             ;;
         *) die "usage: vm.sh <linux|windows> <command>" ;;
     esac
@@ -193,6 +197,140 @@ EOF
     return 1
 }
 
+# The answer file. Windows Setup reads `autounattend.xml` from the root of any
+# volume it can see, so the file ships as a small disk rather than as a file.
+# That is the same idea as the cloud-init seed above, in the other format.
+#
+# Three things matter here, and each one removes a question that a person would
+# otherwise answer with a mouse:
+#
+#   - the LabConfig keys turn off the checks for a security chip, for secure
+#     boot, and for memory. A guest has none of the three, and the installer
+#     stops on all of them.
+#   - the OOBE block skips every first-boot page.
+#   - the FirstLogonCommands install the OpenSSH server and start it, which is
+#     the only way this script reaches the guest afterwards.
+windows_answers() {
+    work=$DIR/answers
+    rm -rf "$work" "$DIR/answers.dmg"
+    mkdir -p "$work"
+
+    cat > "$work/autounattend.xml" <<EOF
+<?xml version="1.0" encoding="utf-8"?>
+<unattend xmlns="urn:schemas-microsoft-com:unattend">
+  <settings pass="windowsPE">
+    <component name="Microsoft-Windows-Setup" processorArchitecture="arm64"
+               publicKeyToken="31bf3856ad364e35" language="neutral"
+               versionScope="nonSxS"
+               xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+      <RunSynchronous>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>1</Order>
+          <Path>reg add HKLM\\System\\Setup\\LabConfig /v BypassTPMCheck /t REG_DWORD /d 1 /f</Path>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>2</Order>
+          <Path>reg add HKLM\\System\\Setup\\LabConfig /v BypassSecureBootCheck /t REG_DWORD /d 1 /f</Path>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>3</Order>
+          <Path>reg add HKLM\\System\\Setup\\LabConfig /v BypassRAMCheck /t REG_DWORD /d 1 /f</Path>
+        </RunSynchronousCommand>
+      </RunSynchronous>
+      <UserData><AcceptEula>true</AcceptEula></UserData>
+      <ImageInstall>
+        <OSImage>
+          <InstallTo><DiskID>0</DiskID><PartitionID>3</PartitionID></InstallTo>
+        </OSImage>
+      </ImageInstall>
+      <DiskConfiguration>
+        <WillShowUI>OnError</WillShowUI>
+        <Disk wcm:action="add">
+          <DiskID>0</DiskID>
+          <WillWipeDisk>true</WillWipeDisk>
+          <CreatePartitions>
+            <CreatePartition wcm:action="add">
+              <Order>1</Order><Type>EFI</Type><Size>260</Size>
+            </CreatePartition>
+            <CreatePartition wcm:action="add">
+              <Order>2</Order><Type>MSR</Type><Size>16</Size>
+            </CreatePartition>
+            <CreatePartition wcm:action="add">
+              <Order>3</Order><Type>Primary</Type><Extend>true</Extend>
+            </CreatePartition>
+          </CreatePartitions>
+          <ModifyPartitions>
+            <ModifyPartition wcm:action="add">
+              <Order>1</Order><PartitionID>1</PartitionID>
+              <Format>FAT32</Format><Label>System</Label>
+            </ModifyPartition>
+            <ModifyPartition wcm:action="add">
+              <Order>2</Order><PartitionID>2</PartitionID>
+            </ModifyPartition>
+            <ModifyPartition wcm:action="add">
+              <Order>3</Order><PartitionID>3</PartitionID>
+              <Format>NTFS</Format><Label>Windows</Label><Letter>C</Letter>
+            </ModifyPartition>
+          </ModifyPartitions>
+        </Disk>
+      </DiskConfiguration>
+    </component>
+  </settings>
+  <settings pass="oobeSystem">
+    <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="arm64"
+               publicKeyToken="31bf3856ad364e35" language="neutral"
+               versionScope="nonSxS"
+               xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+      <UserAccounts>
+        <LocalAccounts>
+          <LocalAccount wcm:action="add">
+            <Name>$USER_NAME</Name>
+            <Group>Administrators</Group>
+            <Password><Value>$WINDOWS_PASSWORD</Value><PlainText>true</PlainText></Password>
+          </LocalAccount>
+        </LocalAccounts>
+      </UserAccounts>
+      <AutoLogon>
+        <Enabled>true</Enabled>
+        <Username>$USER_NAME</Username>
+        <LogonCount>1</LogonCount>
+        <Password><Value>$WINDOWS_PASSWORD</Value><PlainText>true</PlainText></Password>
+      </AutoLogon>
+      <OOBE>
+        <HideEULAPage>true</HideEULAPage>
+        <HideOEMRegistrationScreen>true</HideOEMRegistrationScreen>
+        <HideOnlineAccountScreens>true</HideOnlineAccountScreens>
+        <HideWirelessSetupInOOBE>true</HideWirelessSetupInOOBE>
+        <ProtectYourPC>3</ProtectYourPC>
+      </OOBE>
+      <FirstLogonCommands>
+        <SynchronousCommand wcm:action="add">
+          <Order>1</Order>
+          <CommandLine>powershell -NoProfile -Command "Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0"</CommandLine>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <Order>2</Order>
+          <CommandLine>powershell -NoProfile -Command "Set-Service -Name sshd -StartupType Automatic; Start-Service sshd"</CommandLine>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <Order>3</Order>
+          <CommandLine>powershell -NoProfile -Command "New-ItemProperty -Path 'HKLM:\\SOFTWARE\\OpenSSH' -Name DefaultShell -Value 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe' -PropertyType String -Force"</CommandLine>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <Order>4</Order>
+          <CommandLine>netsh advfirewall firewall add rule name="sshd" dir=in action=allow protocol=TCP localport=22</CommandLine>
+        </SynchronousCommand>
+      </FirstLogonCommands>
+    </component>
+  </settings>
+</unattend>
+EOF
+
+    hdiutil create -quiet -srcfolder "$work" -fs MS-DOS -volname ANSWERS \
+        -format UDRW -ov "$DIR/answers" || die "the answer disk did not build"
+    say "wrote the answer disk $DIR/answers.dmg"
+}
+
 windows_create() {
     windows_iso || return 1
     mkdir -p "$DIR"
@@ -201,8 +339,25 @@ windows_create() {
             die "the guest disk did not build"
         say "made the guest disk $DISK, $DISK_SIZE"
     fi
+    # The firmware keeps its variables in a file of its own.
     [ -f "$VARS" ] || dd if=/dev/zero of="$VARS" bs=1m count=64 2> /dev/null
-    say "the answer file lands in the next change, with the install step"
+    windows_answers
+    say "ready. Next: evidence/controls/vm.sh windows install"
+}
+
+# The installer runs with a window on purpose. It answers itself, and a failed
+# install has to be readable, so this is the one step that shows anything.
+windows_install() {
+    [ -f "$WINDOWS_ISO" ] || die "no installation image. Run: vm.sh windows create"
+    [ -f "$DISK" ] || die "no guest disk. Run: vm.sh windows create"
+    say "the installer answers itself. Close the window when the guest reaches its desktop,"
+    say "then run: evidence/controls/vm.sh windows start"
+    qemu_run \
+        -device usb-storage,drive=install \
+        -drive "file=$WINDOWS_ISO,if=none,id=install,media=cdrom,readonly=on" \
+        -device usb-storage,drive=answers \
+        -drive "file=$DIR/answers.dmg,if=none,id=answers,format=raw" \
+        -display default,show-cursor=on
 }
 
 # ---------------------------------------------------------------------- QEMU
@@ -323,6 +478,7 @@ shift
 case "${1:-}" in
     create) [ "$GUEST" = linux ] && linux_create || windows_create ;;
     iso) windows_iso ;;
+    install) windows_install ;;
     start) cmd_start ;;
     stop) cmd_stop ;;
     status) cmd_status ;;
