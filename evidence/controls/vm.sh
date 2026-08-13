@@ -352,12 +352,35 @@ windows_install() {
     [ -f "$DISK" ] || die "no guest disk. Run: vm.sh windows create"
     say "the installer answers itself. Close the window when the guest reaches its desktop,"
     say "then run: evidence/controls/vm.sh windows start"
+
+    rm -f "$DIR/monitor.sock"
     qemu_run \
         -device usb-storage,drive=install \
         -drive "file=$WINDOWS_ISO,if=none,id=install,media=cdrom,readonly=on" \
         -device usb-storage,drive=answers \
         -drive "file=$DIR/answers.dmg,if=none,id=answers,format=raw" \
-        -display default,show-cursor=on
+        -monitor "unix:$DIR/monitor.sock,server,nowait" \
+        -display default,show-cursor=on &
+    installer=$!
+
+    # Windows install media asks a person to press a key before it boots, and
+    # an unattended install has nobody to press it. The firmware then falls
+    # through to the empty disk and waits there, at almost no processor cost,
+    # which reads exactly like a slow install and is not one.
+    #
+    # The monitor is the keyboard. It sends a few returns over the first half
+    # minute, so whichever prompt is on screen gets one.
+    (
+        tries=0
+        while [ "$tries" -lt 15 ]; do
+            [ -S "$DIR/monitor.sock" ] &&
+                printf 'sendkey ret\n' | nc -U "$DIR/monitor.sock" > /dev/null 2>&1
+            tries=$((tries + 1))
+            sleep 2
+        done
+    ) &
+
+    wait "$installer"
 }
 
 # ---------------------------------------------------------------------- QEMU

@@ -364,7 +364,24 @@ fi
 # The workspace arrives over 9p at /work, which is where the container mounted
 # it, so a control reads one path either way. The build directory stays on the
 # disk of the guest, because a build over a shared filesystem is far slower.
-if "$ROOT/evidence/controls/vm.sh" linux status > /dev/null 2>&1; then
+# Two machines reach these controls, and a machine that is already Linux is
+# one of them. A guest is what a Mac needs, and it must not become what a Linux
+# host needs as well: a runner that is Linux would otherwise skip every row it
+# can answer natively.
+#
+# Both forms run the same command text, and only the place changes, so a
+# control cannot drift between them.
+LINUX_HOW=''
+if [ "$(uname -s)" = Linux ]; then
+    LINUX_HOW="on this machine"
+    linux() {
+        sh -c "cd $ROOT &&
+            export FIDELITY_BUILD_SEED=test FIDELITY_CODE_IDENTITY=none \
+                   CARGO_TARGET_DIR=/var/tmp/target &&
+            $*"
+    }
+elif "$ROOT/evidence/controls/vm.sh" linux status > /dev/null 2>&1; then
+    LINUX_HOW="in the guest"
     linux() {
         "$ROOT/evidence/controls/vm.sh" linux run "cd /work &&
             . \$HOME/.cargo/env &&
@@ -372,6 +389,9 @@ if "$ROOT/evidence/controls/vm.sh" linux status > /dev/null 2>&1; then
                    CARGO_TARGET_DIR=/var/tmp/target &&
             $*"
     }
+fi
+
+if [ -n "$LINUX_HOW" ]; then
     # The unaccounted-code pair. A loader that maps a library from a file must
     # not trip the detector, and an agent that maps anonymous executable memory
     # must. The guest holds `build-essential`, so it builds each agent itself.
@@ -436,6 +456,53 @@ if "$ROOT/evidence/controls/vm.sh" linux status > /dev/null 2>&1; then
                 /var/tmp/target/debug/examples/late"
     }
 
+    # The expected-identity pair. An appended byte leaves an ELF image
+    # runnable and changes its content, so the repackaged copy is what a
+    # repackaged artifact really is, and not a value that a test made up.
+    identity_build='cargo build --quiet --example identity -p fidelity &&
+        cp /var/tmp/target/debug/examples/identity /tmp/original &&
+        chmod +x /tmp/original'
+    identity_clean_linux() {
+        linux "$identity_build &&
+            /tmp/original \$(sha256sum /tmp/original | cut -d\" \" -f1)" |
+            grep 'expected_identity: clean'
+    }
+    identity_repackaged_linux() {
+        linux "$identity_build &&
+            digest=\$(sha256sum /tmp/original | cut -d\" \" -f1) &&
+            cp /tmp/original /tmp/repackaged &&
+            printf '\\0' >> /tmp/repackaged &&
+            chmod +x /tmp/repackaged &&
+            /tmp/repackaged \$digest" |
+            grep 'expected_identity: High'
+    }
+
+    # The platform-trust pair. fs-verity needs a filesystem block size equal to
+    # the page size, and `mkfs.ext4` chooses 1024-byte blocks for an image this
+    # small, so `-b 4096` is not optional: without it the enable fails with
+    # EINVAL, which names nothing.
+    verity_linux() {
+        linux 'sudo /sbin/mkfs.ext4 -q -b 4096 -O verity -F /tmp/verity.img 2>/dev/null ||
+                { dd if=/dev/zero of=/tmp/verity.img bs=1M count=256 status=none &&
+                  sudo /sbin/mkfs.ext4 -q -b 4096 -O verity -F /tmp/verity.img; } &&
+            sudo mkdir -p /mnt/verity &&
+            sudo umount /mnt/verity 2>/dev/null;
+            sudo mount -o loop /tmp/verity.img /mnt/verity &&
+            cargo build --quiet --example identity -p fidelity &&
+            sudo cp /var/tmp/target/debug/examples/identity /mnt/verity/identity &&
+            sudo fsverity enable /mnt/verity/identity &&
+            cd /mnt/verity && ./identity' |
+            grep 'platform_trust: clean'
+    }
+
+    run Linux identity-clean-linux identity_clean_linux
+    run Linux identity-repackaged-linux identity_repackaged_linux
+    if linux 'sudo -n true && command -v fsverity' > /dev/null 2>&1; then
+        run Linux verity-linux verity_linux
+    else
+        skip Linux verity-linux "no passwordless sudo, or no fsverity tool"
+    fi
+
     run Linux tracer-clean-linux tracer_clean_linux
     run Linux tracer-at-start-linux tracer_at_start_linux
     run Linux tracer-attaches-linux tracer_attaches_linux
@@ -444,9 +511,11 @@ if "$ROOT/evidence/controls/vm.sh" linux status > /dev/null 2>&1; then
 else
     for control in linux-probe-tests cost-linux inject-clean inject-hostile \
         baseline-hostile-linux baseline-clean-linux \
+        identity-clean-linux identity-repackaged-linux verity-linux \
         tracer-clean-linux tracer-at-start-linux tracer-attaches-linux \
         plugin-load-linux legitimate-plugin-linux; do
-        skip Linux "$control" "no Linux guest answers: evidence/controls/vm.sh linux start"
+        skip Linux "$control" "this machine runs no Linux, and no guest answers: \
+evidence/controls/vm.sh linux start"
     done
 fi
 

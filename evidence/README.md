@@ -38,7 +38,7 @@ The capability and system names match the coverage matrix exactly, because the t
 | `identity` | `integrity.platform_trust` | Android | Android 37, emulator | the tier reports `Unsupported`, because Android accepts any self-signed certificate and anchors none | none. An `Unsupported` tier creates no finding, so it has no hostile control. |
 | `identity` | `integrity.expected_identity` | Android | Android 37, emulator | an instrumented test reads the certificate of its own archive, and it equals what `PackageManager` reports for the same package | a pinned digest against another certificate, which reports, `High` |
 | `identity` | `integrity.platform_trust` | Linux | Debian 13, kernel 6.12, in the QEMU guest, 2026-08-13 | both arms ran. On an ordinary filesystem the ioctl answers that the image carries no fs-verity, and the tier reports `Unsupported`. On an ext4 filesystem made with `-O verity`, and with verity enabled on the image, the tier reports `Accepted`. | none. This tier accepts or states a gap, and it creates no finding either way. |
-| `identity` | `integrity.expected_identity` | Linux | Debian 13, kernel 6.12, in the QEMU guest, 2026-08-13 | the running image matches the digest of its own content, read through `/proc/self/exe` | a pinned digest of another value, which reports, `High`. No repackaged-binary control exists yet, and the gaps below name it. |
+| `identity` | `integrity.expected_identity` | Linux | Debian 13, kernel 6.12, in the QEMU guest, 2026-08-13 | the running image, pinned to the digest of its own content, stays clean | the same image with one byte appended, against the digest of the original, which reports, `High`. An appended byte leaves an ELF image runnable and changes its content, so the control repackages a real artifact. |
 | `baseline` | `integrity.runtime_baseline` | macOS | macOS 26 | two JavaScript hot loops, which add no region, and 40 s with no finding | an agent maps 64 KiB after start, caught after 5.6 s to 7.1 s, `Medium` |
 | `baseline` | `integrity.runtime_baseline` | iOS | iOS 26, simulator | 40 s with no finding | an agent maps 64 KiB after start, caught after 5.9 s, `Medium` |
 | `baseline` | `integrity.runtime_baseline` | Linux | Debian, glibc | 40 s with no finding | an `LD_PRELOAD` agent maps 64 KiB after start, caught after 6.1 s to 6.8 s, `Medium` |
@@ -362,10 +362,8 @@ evidence/run.sh
 ```
 
 It writes `record.tsv`, and it leaves the output of each control under `target/evidence/`. Each
-section below sets up one system that the harness reports as skipped, so boot a simulator, start
-the container daemon, or attach a device, and run it again. The Linux row keeps its own build
-directory in a Docker volume named `fidelity-evidence-target`, because the host and the container
-otherwise fight over one `target/`.
+section below sets up one system that the harness reports as skipped, so boot a simulator, start a
+guest, or attach a device, and run it again.
 
 ### iOS, on the simulator
 
@@ -425,15 +423,44 @@ The Android line measures a shell binary, which maps no archive. `./gradlew
 connectedDebugAndroidTest` measures an application process, and it prints both numbers to logcat
 under the `fidelity` tag.
 
-### Linux, in a container
+### Linux, in the guest
 
 ```sh
-docker run --rm -it --cap-add=SYS_PTRACE -v "$PWD:/work" -v "$PWD/evidence/controls:/src" \
-    -e FIDELITY_BUILD_SEED=test -e FIDELITY_CODE_IDENTITY=none -e CARGO_TARGET_DIR=/tmp/target \
-    rust:slim sh
+evidence/controls/vm.sh linux create      # about 26 s, and it asks nothing
+evidence/controls/vm.sh linux start       # about 20 s
+evidence/controls/vm.sh linux provision   # the Rust toolchain
+evidence/controls/vm.sh linux run 'uname -a'
 ```
 
-`CARGO_TARGET_DIR` matters: without it the container and the host fight over one `target/`.
+A container ran these controls before, and it could not answer two of them. It
+shares the kernel of the machine that hosts it, so it holds no filesystem of
+its own and fs-verity cannot be enabled there, which left the platform-trust
+tier with nothing to report. It also needed `--cap-add=SYS_PTRACE`, so every
+tracer control ran under a grant that no real host gives itself.
+
+The workspace arrives over 9p at `/work`, which is where the container mounted
+it, so a control reads one path either way. The build directory stays on the
+disk of the guest, at `/var/tmp/target`: the host and the guest otherwise fight
+over one `target/`, and a build over a shared filesystem is far slower.
+
+A machine that already runs Linux needs none of this. `run.sh` runs the same
+control text on that machine directly, and only the place changes.
+
+### Windows, in the guest
+
+```sh
+evidence/controls/vm.sh windows create    # after the image is in place
+evidence/controls/vm.sh windows install   # unattended, with a window
+evidence/controls/vm.sh windows start
+evidence/controls/vm.sh windows provision
+```
+
+The image is the one step a person takes, and the reason is Microsoft's. Three
+of the four download steps answer a script: the page names the ARM64 product,
+and an interface returns the language list. The fourth, which turns a language
+into a link, refuses with `ErrorSettings.SentinelReject`, because Microsoft
+guards that endpoint against automation on purpose. Measured on 2026-08-13.
+Working around that guard is not this project's business.
 
 ### Android, the instrumented harness
 
@@ -503,7 +530,6 @@ noticed them. Read them first.
 | A `Virtualization` detector | One whole v1 category. `emulation` reads `plan` on all five platforms, no capability trait exists, and no detector is specified. Unlike `UiAbuse` this one is control-blocked as well: the clean and hostile pair needs a physical Android device, or macOS in a virtual machine, or bare-metal Linux, and this machine supplies none of the three. |
 | An Android device | The row above, the rooted-system row, and any measurement that an emulator cannot make. Every Android result in this record came from an emulator. |
 | An image that names its team, on iOS | The positive half of iOS `identity`. Apple restricts a team entitlement to a provisioned build: an ad-hoc signature that carries one is refused at launch, measured on macOS 26 and on the iOS 26 simulator on 2026-08-10, both with `SIGKILL`. Every iOS control therefore ran against an image that names no team, so the probe has never read a real one. The reader is proven against a recorded signature that does carry one, and the comparison is a plain function that the tests cover, so only the join of the two is open. |
-| A repackaged binary on Linux | The hostile half of Linux `integrity.expected_identity`. The unit test pins another digest, so it exercises the read, the hash, and the comparison, and only the pinned value is synthetic. A control that copies the artifact, changes one byte, and runs it would close that last step. |
 | A system application on Android | Nothing that a host needs. Android installs a system application outside `/data/app/`, under a name of its own, so the exact rule that selects an archive reports a gap for one. A host application always installs under `/data/app/`. |
 | The 3 controls that a person still drives | Nothing that blocks a release, and it bounds what the generated record proves. `run.sh` now drives every control that can state its own answer. The 3 that remain state none: `phases.m` needs a window server and a run loop, `qos-drift.c` measured one design choice that is already made, and `entitle.c` prints the entitlements of whatever image it runs in, which is a reading rather than a result. |
 | A jailbroken iOS system | iOS `device`. The mechanism is reachable, because a jailbreak weakens the same kernel guarantees that the identity probe already reads. No control produces one, so no measurement exists and no code was written. |
