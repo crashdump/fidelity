@@ -14,6 +14,7 @@ dependencies = [
  "fidelity-probe-android",
  "fidelity-probe-apple",
  "fidelity-probe-linux",
+ "fidelity-probe-windows",
  "fidelity-types",
 ]
 

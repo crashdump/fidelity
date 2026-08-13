@@ -9,6 +9,12 @@ repository.workspace = true
 keywords.workspace = true
 categories = ["os", "security"]
 
+# The crate compiles for its own target only, so a build for any other target
+# documents nothing at all.
+[package.metadata.docs.rs]
+default-target = "aarch64-linux-android"
+targets = []
+
 [target.'cfg(target_os = "android")'.dependencies]
 fidelity-cipher.workspace = true
 fidelity-core.workspace = true

@@ -9,6 +9,12 @@ repository.workspace = true
 keywords.workspace = true
 categories = ["os::macos-apis", "security"]
 
+# The crate compiles for its own target only, so a build for any other target
+# documents nothing at all.
+[package.metadata.docs.rs]
+default-target = "aarch64-apple-darwin"
+targets = ["aarch64-apple-ios"]
+
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 fidelity-core.workspace = true
 fidelity-formats.workspace = true

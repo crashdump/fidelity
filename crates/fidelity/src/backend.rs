@@ -75,11 +75,27 @@ pub(crate) fn build() -> Result<Box<dyn Environment>, StartError> {
 ///
 /// Returns [`StartError::PlatformUnavailable`] on a target that ships no
 /// probe crate.
+#[cfg(target_os = "windows")]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "a target without a probe crate returns the error, so the signature stays uniform"
+)]
+pub(crate) fn build() -> Result<Box<dyn Environment>, StartError> {
+    Ok(Box::new(fidelity_probe_windows::WindowsEnvironment::new()))
+}
+
+/// Constructs the environment for the target platform.
+///
+/// # Errors
+///
+/// Returns [`StartError::PlatformUnavailable`] on a target that ships no
+/// probe crate.
 #[cfg(not(any(
     target_os = "macos",
     target_os = "ios",
     target_os = "linux",
-    target_os = "android"
+    target_os = "android",
+    target_os = "windows"
 )))]
 pub(crate) fn build() -> Result<Box<dyn Environment>, StartError> {
     Err(StartError::PlatformUnavailable {

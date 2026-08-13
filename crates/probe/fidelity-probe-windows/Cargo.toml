@@ -9,6 +9,12 @@ repository.workspace = true
 keywords.workspace = true
 categories = ["os::windows-apis", "security"]
 
+# The crate compiles for its own target only, so a build for any other target
+# documents nothing at all.
+[package.metadata.docs.rs]
+default-target = "x86_64-pc-windows-msvc"
+targets = []
+
 [target.'cfg(target_os = "windows")'.dependencies]
 fidelity-core.workspace = true
 fidelity-types.workspace = true

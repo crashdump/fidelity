@@ -8,7 +8,22 @@ only when it changes what `fidelity` exposes.
 This file records released versions. The work before the first release lives in the git history and
 in `evidence/README.md`, which states what each platform proved and what it did not.
 
-## Unreleased
+## 0.1.0 - 2026-08-13
 
-No release exists yet. No platform is supported, because a supported label needs the full release
-evidence that `docs/plan/05-verification.md` defines.
+This is the first published release, and it claims no supported platform.
+
+Four platforms run. macOS, iOS, Linux, and Android compare executable memory against a baseline
+that `start()` captures, and all four read tracer state. macOS adds image identity and
+`guarded!()`. Linux and Android add unaccounted code. The iOS evidence comes from the simulator, so
+a device has still to confirm it. Windows returns `StartError::PlatformUnavailable`.
+
+A supported label needs the full release evidence that `docs/plan/05-verification.md` defines, and
+no platform holds it yet. Treat this release as an early version. Expect the public surface to
+change before 1.0.
+
+- The `fidelity` crate is the entry point, and it alone follows SemVer.
+- The `serde` feature is off by default, so a default build resolves to no external crate.
+- The MSRV is Rust 1.85.
+- A host that uses `guarded!()` sets `FIDELITY_BUILD_SEED` and `FIDELITY_CODE_IDENTITY` at build
+  time. The build fails when either one is absent, because a default seed gives every host the
+  same key.

@@ -14,7 +14,13 @@
 //! cargo run --example late                              # clean control
 //! DYLD_INSERT_LIBRARIES=./delayed.dylib ... --example late   # macOS
 //! LD_PRELOAD=./delayed.so ...            --example late      # Linux
+//! inject-windows.exe <pid>                                   # Windows
 //! ```
+//!
+//! Windows offers no preload variable, so the control there maps the memory
+//! from outside. The example prints its process identifier for that reason,
+//! and it prints it after `start()` captured the baseline, so a driver that
+//! waits for the line also waits for the baseline.
 //!
 //! The example exits with a success code when the worker reports the change,
 //! and with a failure code when the deadline passes first.
@@ -39,6 +45,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // this. The default action stays `Report`, and nothing else interferes.
     let handle = fidelity::new().start()?;
 
+    println!("pid {}", std::process::id());
     println!("start: {}", baseline(&handle));
     if found(&handle) {
         println!("this build reports a change at start, so it proves nothing here");

@@ -17,6 +17,19 @@ exclude = [
     "tests/evidence.rs",
 ]
 
+# Cargo selects a probe by the target, so a page built for one target states
+# what that one platform reads. The list gives the reader every platform, and
+# `all-features` documents the `serde` implementations.
+[package.metadata.docs.rs]
+all-features = true
+targets = [
+    "aarch64-apple-darwin",
+    "aarch64-apple-ios",
+    "aarch64-linux-android",
+    "x86_64-pc-windows-msvc",
+    "x86_64-unknown-linux-gnu",
+]
+
 [build-dependencies]
 fidelity-cipher.workspace = true
 
@@ -41,6 +54,9 @@ fidelity-probe-linux.workspace = true
 
 [target.'cfg(target_os = "android")'.dependencies]
 fidelity-probe-android.workspace = true
+
+[target.'cfg(target_os = "windows")'.dependencies]
+fidelity-probe-windows.workspace = true
 
 [lints]
 workspace = true

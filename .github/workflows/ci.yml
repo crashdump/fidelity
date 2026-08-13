@@ -4,15 +4,17 @@
 # second copy here would drift from that one, and the copy that drifts is the
 # one that decides whether a change lands.
 #
-# The script runs on two runners, because each one reaches controls that the
-# other cannot. The macOS runner reaches the macOS controls. The Linux runner
+# The script runs on three runners, because each one reaches controls that the
+# others cannot. The macOS runner reaches the macOS controls. The Linux runner
 # ships a container runtime, which the macOS runner does not, so it reaches the
-# eleven Linux controls.
+# eleven Linux controls. The Windows runner is the only machine anywhere in
+# this project that runs Windows, so it reaches the nine Windows controls and
+# nothing else does.
 #
-# Neither runner reaches a device or a simulator, so the harness records a
-# `skipped` row for each of those with the reason. That is the point: a green
-# run here is not a claim that every platform was exercised, and the log says
-# which ones were not.
+# No runner reaches a device or a simulator, so the harness records a `skipped`
+# row for each of those with the reason. That is the point: a green run here is
+# not a claim that every platform was exercised, and the log says which ones
+# were not.
 name: gate
 
 on:
@@ -28,8 +30,13 @@ jobs:
       # One runner must not hide the answer that the other one gives.
       fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-latest]
+        os: [macos-latest, ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    # The harness is one POSIX shell script, and the Windows runner defaults to
+    # PowerShell. One shell for every runner keeps the gate a single script.
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
 
@@ -47,7 +54,7 @@ jobs:
           # `rustup target add` on the host target succeeds and does nothing.
           for target in aarch64-apple-darwin aarch64-apple-ios \
                         aarch64-linux-android aarch64-unknown-linux-gnu \
-                        x86_64-pc-windows-msvc; do
+                        aarch64-pc-windows-msvc x86_64-pc-windows-msvc; do
               rustup target add "$target"
               rustup target add --toolchain "$msrv" "$target"
           done

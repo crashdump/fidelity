@@ -9,6 +9,9 @@ repository.workspace = true
 keywords.workspace = true
 categories = ["security"]
 
+[package.metadata.docs.rs]
+all-features = true
+
 [dependencies]
 serde = { workspace = true, optional = true }
 

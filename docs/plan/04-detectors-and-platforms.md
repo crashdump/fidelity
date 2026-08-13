@@ -160,6 +160,12 @@ The kernel holds this state, so the detector reads it and adds nothing.
 | iOS | the same flag, through the same interface, so both Apple systems share the body | `lldb` |
 | Linux | the `TracerPid` field of `/proc/self/status` | `gdb` |
 | Android | the same field, because Android keeps the Linux process filesystem. It needs no JVM handle. | a `ptrace` tracer |
+| Windows | `CheckRemoteDebuggerPresent`, which asks the kernel about the debug port of the process | `controls/attach-windows.c` |
+
+Windows offers a second call, and the probe does not take it. `IsDebuggerPresent` reads the
+`BeingDebugged` byte of the process environment block, which is memory inside this process, so an
+attacker who already runs here clears one byte. The call the probe takes asks the kernel, which is
+the same source that the other four platforms read.
 
 On each one, a clean run and the same binary under a debugger separate on that value.
 
@@ -183,6 +189,14 @@ That is the structural question this category asks, and it replaces every tool n
 
 Linux and Android read the mapping table of the process. A region counts as unaccounted when it is
 anonymous, or when its file is gone. A region that the kernel named does not count.
+
+Windows answers the same question, and it states the answer rather than implying it. `VirtualQuery`
+reports the type of every region: an image section, another section, or private memory. A loader
+maps a module as an image, so an image is accounted. Private memory is not. A section that is
+neither needs one more question, because a file backs one kind and the page file backs the other,
+and `GetMappedFileName` separates the two. That last pair matters: a manual mapper uses the second
+kind, so a rule that accepted every section would miss it. The strength stays `Medium`, for the
+reason below, and the clean control that a compiler produces has still to run here.
 
 The measurement is what makes the rule usable, and it separates one compiler from another rather
 than clearing them all. Measured on Android 37 and ARM64, a real runtime process names its code

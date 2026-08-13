@@ -9,11 +9,13 @@
 //!
 //! # Status
 //!
-//! No capability is implemented yet, so `WindowsEnvironment` answers `Unsupported`
-//! everywhere and the `fidelity` facade does not construct it. `start()`
-//! returns `StartError::PlatformUnavailable` on this platform. A probe that
-//! answered `Unsupported` to everything while the runtime reported success
-//! would claim coverage that nothing produced.
+//! The `baseline`, `injection`, and `tracer` capabilities answer. `identity`
+//! waits for the Authenticode reader, so it reports `Unsupported` through the
+//! trait default.
+//!
+//! No release calls this platform supported. That label needs real clean and
+//! hostile evidence for every capability above, and
+//! [verification](../../../../docs/plan/05-verification.md) alone defines it.
 //!
 //! # Layout
 //!
@@ -21,13 +23,16 @@
 //! A capability that this platform does not answer gets an empty `impl`, which
 //! states the gap without a method body to read.
 //!
-//! `sys/` will hold the Win32 bindings, one file per library: `wintrust.rs` for Authenticode, `psapi.rs` for the loader view, and so on.
+//! `sys/` holds the Win32 bindings, one file per interface.
 
 #![cfg(target_os = "windows")]
 
+mod baseline;
+mod injection;
 mod sys;
+mod tracer;
 
-use fidelity_core::{Baseline, Device, Environment, Identity, Injection, Lifecycle, Tracer};
+use fidelity_core::{Device, Environment, Identity, Lifecycle};
 use fidelity_types::Platform;
 
 /// The Windows view of the running process.
@@ -54,12 +59,11 @@ impl Environment for WindowsEnvironment {
     }
 }
 
-// No capability is implemented yet. Each empty `impl` states one gap, and the
-// trait default reports `Unsupported` until platform code replaces it.
+// `Baseline`, `Injection`, and `Tracer` carry real platform code, so each one
+// lives in the module that carries its name. `Identity` waits for the
+// Authenticode reader. The empty `impl` states that gap, and the trait default
+// reports `Unsupported` until platform code replaces it.
 impl Identity for WindowsEnvironment {}
-impl Tracer for WindowsEnvironment {}
-impl Injection for WindowsEnvironment {}
-impl Baseline for WindowsEnvironment {}
 
 // Windows cannot answer `device`. The category reports the loss of a privilege
 // boundary that the operating system holds against its own user, and Windows

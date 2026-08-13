@@ -1,16 +1,18 @@
 #!/bin/sh
-# Proves that the worker catches a tracer that attaches after start.
+# Proves that the worker catches an attacker that arrives after start.
 #
-#     trace-after-start.sh <attach example> <tracer> [tracer argument...]
+#     trace-after-start.sh <example> <attacker> [attacker argument...]
 #
-# The other tracer controls start a process under a tracer, so the initial scan
+# The other controls start a process under an attacker, so the initial scan
 # finds it. This one is the realistic attack: the application already runs, and
-# an attacker attaches to it. Only the worker catches that, and the time it
-# takes is the time a host is exposed for.
+# an attacker reaches it. Only the worker catches that, and the time it takes
+# is the time a host is exposed for.
 #
-# The tracer takes the process identifier as its last argument, and it reads
-# `continue` on standard input. That is `lldb -p` on macOS, and the `attach`
-# control beside this file on Linux and on Android.
+# The attacker takes the process identifier as its last argument, and it reads
+# `continue` on standard input. That is `lldb -p` on macOS, the `attach`
+# control beside this file on Linux and on Android, and `attach-windows` on
+# Windows. `inject-windows` uses the same contract to map memory instead of to
+# trace, because the driver is the same: start, read the identifier, attack.
 #
 # It exits with the code that the example reports: zero when the worker caught
 # the tracer, and non-zero when the deadline passed first.

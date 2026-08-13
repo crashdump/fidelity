@@ -28,7 +28,7 @@ FAILED=0
 
 # Every target that a probe crate builds for. The cross-check is what proves
 # that a change to a capability trait still compiles every platform.
-TARGETS="aarch64-apple-darwin aarch64-apple-ios aarch64-linux-android aarch64-unknown-linux-gnu x86_64-pc-windows-msvc"
+TARGETS="aarch64-apple-darwin aarch64-apple-ios aarch64-linux-android aarch64-unknown-linux-gnu aarch64-pc-windows-msvc x86_64-pc-windows-msvc"
 
 # A digest of the right shape, for the build rules that must refuse a value.
 DIGEST=9f3a1c0e5b7d2846a09f3a1c0e5b7d2846a09f3a1c0e5b7d2846a09f3a1c0e5b
@@ -440,6 +440,114 @@ else
         tracer-clean-linux tracer-at-start-linux tracer-attaches-linux \
         plugin-load-linux legitimate-plugin-linux; do
         skip Linux "$control" "no docker daemon answers"
+    done
+fi
+
+# ---------------------------------------------------------------------- Windows
+
+# Windows offers no preload variable, so every hostile control here reaches the
+# subject from outside. `controls/inject-windows.c` maps the memory and
+# `controls/attach-windows.c` is the tracer, and each one takes a process
+# identifier or a program, in the same two forms that `attach.c` takes on Linux.
+#
+# A Windows probe answers only on Windows, so this whole section skips
+# elsewhere. The cross-check above still builds the crate from every machine.
+WINDOWS=no
+case "$(uname -s)" in
+    MINGW* | MSYS* | CYGWIN*) WINDOWS=yes ;;
+esac
+
+# Any of three compilers builds a control here, and the harness takes the first
+# one it finds. A workflow that installed one would add a supply-chain
+# dependency to the gate, and this project keeps that surface at zero.
+WINDOWS_CC=''
+for candidate in cl clang gcc; do
+    if command -v "$candidate" > /dev/null 2>&1; then
+        WINDOWS_CC=$candidate
+        break
+    fi
+done
+
+if [ "$WINDOWS" = yes ] && [ -n "$WINDOWS_CC" ]; then
+    EXE=$ROOT/target/debug/examples
+    build_control() {
+        source=$ROOT/evidence/controls/$1.c
+        binary=$OUT/$1.exe
+        case $WINDOWS_CC in
+            cl) (cd "$OUT" && cl /nologo /W4 "/Fe:$binary" "$source") > /dev/null ;;
+            *) "$WINDOWS_CC" -O1 -o "$binary" "$source" ;;
+        esac
+    }
+
+    # The clean control for both memory detectors, and the boundary tests that
+    # only this system can run.
+    windows_probe_tests() { cargo test --quiet -p fidelity-probe-windows; }
+
+    inject_clean_windows() {
+        cargo build --quiet --example inject -p fidelity || return 1
+        "$EXE/inject.exe" | grep 'unaccounted_code: clean'
+    }
+    # The region is in place before the subject runs its first instruction,
+    # which is what a preloaded library gives on Linux.
+    inject_hostile_windows() {
+        cargo build --quiet --example inject -p fidelity || return 1
+        build_control inject-windows || return 1
+        "$OUT/inject-windows.exe" "$EXE/inject.exe" | grep 'unaccounted_code: Medium'
+    }
+
+    # The runtime-baseline pair. The hostile half maps into a process that
+    # already captured its baseline, so only the worker can catch it.
+    baseline_hostile_windows() {
+        cargo build --quiet --example late -p fidelity || return 1
+        build_control inject-windows || return 1
+        "$ROOT/evidence/controls/trace-after-start.sh" \
+            "$EXE/late.exe" "$OUT/inject-windows.exe"
+    }
+    baseline_clean_windows() {
+        cargo build --quiet --example late -p fidelity || return 1
+        "$EXE/late.exe"
+    }
+
+    # The tracer set, in the same three shapes as macOS and Linux.
+    tracer_clean_windows() {
+        cargo build --quiet --example tracer -p fidelity || return 1
+        "$EXE/tracer.exe" | grep 'tracer_present: clean'
+    }
+    tracer_at_start_windows() {
+        cargo build --quiet --example tracer -p fidelity || return 1
+        build_control attach-windows || return 1
+        "$OUT/attach-windows.exe" "$EXE/tracer.exe" |
+            grep 'protected operation: denied'
+    }
+    tracer_attaches_windows() {
+        cargo build --quiet --example attach -p fidelity || return 1
+        build_control attach-windows || return 1
+        "$ROOT/evidence/controls/trace-after-start.sh" \
+            "$EXE/attach.exe" "$OUT/attach-windows.exe"
+    }
+
+    run Windows windows-probe-tests windows_probe_tests
+    run Windows cost-windows cargo run --release --quiet --example cost \
+        -p fidelity-probe-windows
+    run Windows inject-clean-windows inject_clean_windows
+    run Windows inject-hostile-windows inject_hostile_windows
+    run Windows baseline-hostile-windows baseline_hostile_windows
+    refute Windows baseline-clean-windows 'no code arrived after start' \
+        baseline_clean_windows
+    run Windows tracer-clean-windows tracer_clean_windows
+    run Windows tracer-at-start-windows tracer_at_start_windows
+    run Windows tracer-attaches-windows tracer_attaches_windows
+else
+    if [ "$WINDOWS" = yes ]; then
+        WHY="no cl, clang, or gcc on the path, so no control compiles"
+    else
+        WHY="this machine does not run Windows"
+    fi
+    for control in windows-probe-tests cost-windows \
+        inject-clean-windows inject-hostile-windows \
+        baseline-hostile-windows baseline-clean-windows \
+        tracer-clean-windows tracer-at-start-windows tracer-attaches-windows; do
+        skip Windows "$control" "$WHY"
     done
 fi
 

@@ -136,9 +136,9 @@ The marker states what the code does today, and a test enforces every cell. See
 | Capability | Category | macOS | iOS | Windows | Linux | Android |
 |---|---|---|---|---|---|---|
 | `identity` | `Integrity` | yes | yes | plan | plan | yes |
-| `baseline` | `Integrity` | yes | yes | plan | yes | yes |
-| `tracer` | `Debugging` | yes | yes | plan | yes | yes |
-| `injection` | `Instrumentation` | no | no | plan | yes | yes |
+| `baseline` | `Integrity` | yes | yes | yes | yes | yes |
+| `tracer` | `Debugging` | yes | yes | yes | yes | yes |
+| `injection` | `Instrumentation` | no | no | yes | yes | yes |
 | `device` | `DeviceCompromise` | no | plan | no | no | yes |
 | `emulation` | `Virtualization` | plan | plan | plan | plan | plan |
 | `interface` | `UiAbuse` | no | plan | no | no | plan |
