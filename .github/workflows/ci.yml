@@ -4,10 +4,15 @@
 # second copy here would drift from that one, and the copy that drifts is the
 # one that decides whether a change lands.
 #
-# A runner reaches no device, no simulator, and no container, so the harness
-# records a `skipped` row for each of those with the reason. That is the point:
-# a green run here is not a claim that every platform was exercised, and the
-# log says which ones were not.
+# The script runs on two runners, because each one reaches controls that the
+# other cannot. The macOS runner reaches the macOS controls. The Linux runner
+# ships a container runtime, which the macOS runner does not, so it reaches the
+# eleven Linux controls.
+#
+# Neither runner reaches a device or a simulator, so the harness records a
+# `skipped` row for each of those with the reason. That is the point: a green
+# run here is not a claim that every platform was exercised, and the log says
+# which ones were not.
 name: gate
 
 on:
@@ -19,7 +24,12 @@ permissions:
 
 jobs:
   gate:
-    runs-on: macos-latest
+    strategy:
+      # One runner must not hide the answer that the other one gives.
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -32,8 +42,12 @@ jobs:
           rustup toolchain install "$msrv" --profile minimal
           # The sanitizers build the standard library from source.
           rustup toolchain install nightly --profile minimal --component rust-src
-          for target in aarch64-apple-ios aarch64-linux-android \
-                        aarch64-unknown-linux-gnu x86_64-pc-windows-msvc; do
+          # The list holds every target that the harness checks. A target that
+          # is the host on one runner is a cross-target on the other, and
+          # `rustup target add` on the host target succeeds and does nothing.
+          for target in aarch64-apple-darwin aarch64-apple-ios \
+                        aarch64-linux-android aarch64-unknown-linux-gnu \
+                        x86_64-pc-windows-msvc; do
               rustup target add "$target"
               rustup target add --toolchain "$msrv" "$target"
           done

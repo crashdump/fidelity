@@ -229,8 +229,9 @@ change to a capability trait. It needs no device, no emulator, and no NDK.
 
 `evidence/run.sh` runs every row above, and CI runs that one script and states no command of its
 own. A second list in a workflow file would drift from this one, and the copy that drifts is the
-copy that decides whether a change lands. A runner reaches no device, no simulator, and no
-container, so the harness records a skipped row for each with the reason, and a green run never
+copy that decides whether a change lands. CI runs the script on a macOS runner and on a Linux
+runner, because each one reaches controls that the other cannot. A runner reaches no device and no
+simulator, so the harness records a skipped row for each with the reason, and a green run never
 claims more than it tested.
 
 The project may declare crate boundaries early, but implementation proceeds vertically. A platform
