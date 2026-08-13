@@ -535,12 +535,32 @@ cmd_provision() {
             die "the toolchain did not install"
         ssh_to_guest '. "$HOME/.cargo/env" && rustc --version'
     else
+        # Two installs, and the order matters. The Rust target for this
+        # platform is `aarch64-pc-windows-msvc`, which links with the Microsoft
+        # linker, so a guest with only rustup on it builds nothing. The build
+        # tools carry that linker and they carry `cl`, which the C controls
+        # need as well, so one install answers both.
+        say "installing the Microsoft build tools, which is a long download"
         ssh_to_guest 'powershell -NoProfile -Command "
-            if (-not (Get-Command rustup -ErrorAction SilentlyContinue)) {
+            $vs = \"C:\BuildTools\";
+            if (-not (Test-Path $vs)) {
+                Invoke-WebRequest https://aka.ms/vs/17/release/vs_BuildTools.exe -OutFile vs.exe;
+                Start-Process -Wait -FilePath .\vs.exe -ArgumentList @(
+                    \"--quiet\", \"--wait\", \"--norestart\", \"--nocache\",
+                    \"--installPath\", $vs,
+                    \"--add\", \"Microsoft.VisualStudio.Component.VC.Tools.ARM64\",
+                    \"--add\", \"Microsoft.VisualStudio.Component.Windows11SDK.26100\"
+                );
+            }
+            Test-Path $vs"' || die "the build tools did not install"
+
+        ssh_to_guest 'powershell -NoProfile -Command "
+            if (-not (Test-Path \"$env:USERPROFILE\.cargo\bin\rustup.exe\")) {
                 Invoke-WebRequest https://win.rustup.rs/aarch64 -OutFile rustup-init.exe;
                 .\rustup-init.exe -y --default-toolchain stable --profile minimal;
             }
-            rustc --version"' || die "the toolchain did not install"
+            & \"$env:USERPROFILE\.cargo\bin\rustc.exe\" --version"' ||
+            die "the toolchain did not install"
     fi
     say "the $GUEST guest holds a Rust toolchain"
 }
