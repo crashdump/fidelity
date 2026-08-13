@@ -60,7 +60,6 @@ const MAX_PASSES: usize = 100_000;
 /// The v1 floor names two architectures, ARM64 and `x86_64`, and both are
 /// 64-bit, so the size is a constant rather than a target condition.
 #[repr(C)]
-#[derive(Default)]
 struct MemoryBasicInformation {
     base_address: *mut c_void,
     allocation_base: *mut c_void,
@@ -70,6 +69,26 @@ struct MemoryBasicInformation {
     state: u32,
     protect: u32,
     kind: u32,
+}
+
+/// An empty structure for the operating system to fill.
+///
+/// This is written by hand rather than derived. `Default` for a raw pointer
+/// stabilized after the Rust version that `Cargo.toml` pins, so the derived
+/// form builds on current stable and fails on the floor.
+impl Default for MemoryBasicInformation {
+    fn default() -> Self {
+        Self {
+            base_address: core::ptr::null_mut(),
+            allocation_base: core::ptr::null_mut(),
+            allocation_protect: 0,
+            partition_id: 0,
+            region_size: 0,
+            state: 0,
+            protect: 0,
+            kind: 0,
+        }
+    }
 }
 
 /// The operating system writes the whole structure, so its size must match.

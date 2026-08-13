@@ -117,7 +117,7 @@ addition and a size trigger conflict, the addition lands and the trigger moves.
 | Path | Role | Size trigger |
 |---|---|---|
 | `README.md` | What the library is, and the first example | 80 lines |
-| `docs/plan/` | Normative specification, 8 files | 310 lines per file |
+| `docs/plan/` | Normative specification, 8 files | 330 lines per file |
 | `docs/adr/` | One enduring constraint and its reason | 50 lines per file |
 | `docs/research/` | Non-normative notes: operating systems, and the vendor survey | 150 lines per file |
 

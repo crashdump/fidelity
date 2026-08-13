@@ -10,6 +10,7 @@ keywords.workspace = true
 categories = ["os::linux-apis", "security"]
 
 [target.'cfg(target_os = "linux")'.dependencies]
+fidelity-cipher.workspace = true
 fidelity-core.workspace = true
 fidelity-formats.workspace = true
 fidelity-types.workspace = true

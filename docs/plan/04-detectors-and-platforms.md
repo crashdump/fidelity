@@ -73,7 +73,7 @@ it is meant to verify. It is the only local input that detects pre-start repacka
 
 | Platform | Platform trust | Expected identity that the host supplies |
 |---|---|---|
-| Windows | `WinVerifyTrust` chain validation | Authenticode signer thumbprint |
+| Windows | `WinVerifyTrust` chain validation | signing certificate SHA-256, taken from the Authenticode signer |
 | macOS | `SecCodeCheckValidity` against `anchor apple generic` | team identifier, as a code requirement string |
 | iOS | implicit, because the kernel enforces signing and exposes no equivalent API | team identifier, read from the App ID prefix |
 | Android | none, because any self-signed certificate is valid | signing certificate SHA-256, through `hasSigningCertificate` |
@@ -95,6 +95,13 @@ wrong file and a wrong archive gives a wrong identity with no error. The rule ta
 whose install directory names the package that `/proc/self/cmdline` reports, and it reports a gap
 when none does. An instrumented test compares the result against `PackageManager`, because the
 route only holds while the two agree.
+
+Windows holds a trap of the same kind, and the name is what sets it. The value that Windows tooling
+calls a thumbprint is not the value that Fidelity takes. Checked against the .NET reference on
+2026-08-13: `X509Certificate2.Thumbprint` always uses SHA-1, and the certificate user interface
+prints that same value. `AuthenticodeThumbprint` holds a SHA-256 digest of the signer certificate.
+The Android tier already takes that form, so the two platforms state one kind of value. A SHA-1
+thumbprint has 40 characters, so it fails where the host builds it and never reaches `start()`.
 
 Expected identity is optional. Fidelity reports `Unsupported` with a stated reason when the host
 supplies nothing, and the runtime baseline still runs. A call to `expected_identity()` makes the

@@ -11,3 +11,4 @@
 
 pub(crate) mod maps;
 pub(crate) mod status;
+pub(crate) mod verity;

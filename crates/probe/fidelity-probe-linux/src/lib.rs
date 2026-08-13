@@ -9,8 +9,10 @@
 //!
 //! # Status
 //!
-//! The `tracer` capability answers. `identity` waits for fs-verity, so it
-//! reports `Unsupported` through the trait default.
+//! The `baseline`, `injection`, `tracer`, and `identity` capabilities answer.
+//! `identity` reports platform trust only where the deployment enables
+//! fs-verity, and it reports no signer at all, so `guarded!()` still refuses a
+//! Linux binding. The `identity` module states why.
 //!
 //! # Layout
 //!
@@ -27,11 +29,12 @@
 #![cfg(target_os = "linux")]
 
 mod baseline;
+mod identity;
 mod injection;
 mod sys;
 mod tracer;
 
-use fidelity_core::{Device, Environment, Identity, Lifecycle};
+use fidelity_core::{Device, Environment, Lifecycle};
 use fidelity_types::Platform;
 
 /// The Linux view of the running process.
@@ -57,11 +60,6 @@ impl Environment for LinuxEnvironment {
         Platform::Linux
     }
 }
-
-// `Tracer` carries real platform code, so it lives in `tracer.rs`. `Identity`
-// waits for fs-verity. The empty `impl` states that gap, and the trait default
-// reports `Unsupported` until platform code replaces it.
-impl Identity for LinuxEnvironment {}
 
 // Linux cannot answer `device`. The category reports the loss of a privilege
 // boundary that the operating system holds against its own user, and a Linux

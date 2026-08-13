@@ -82,6 +82,7 @@ dependencies = [
 name = "fidelity-probe-linux"
 version = "0.1.0"
 dependencies = [
+ "fidelity-cipher",
  "fidelity-core",
  "fidelity-formats",
  "fidelity-types",
