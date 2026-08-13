@@ -25,7 +25,9 @@
 #![forbid(unsafe_code)]
 
 use fidelity_core::{CodeRegions, Environment};
-use fidelity_types::{Detector, ExpectedIdentity, Outcome};
+use fidelity_types::{
+    BoundedText, Detector, Evidence, ExpectedIdentity, Finding, Outcome, SignalStrength,
+};
 
 mod debugging;
 mod device_compromise;
@@ -82,30 +84,24 @@ impl Detectors {
         now_unix_ms: u64,
     ) -> Vec<(Detector, Outcome)> {
         vec![
-            (
-                PLATFORM_TRUST,
-                integrity::platform_trust(environment, now_unix_ms),
-            ),
-            (
-                EXPECTED_IDENTITY,
-                integrity::expected_identity(environment, self.expected.as_ref(), now_unix_ms),
-            ),
-            (
-                TRACER_PRESENT,
-                debugging::tracer_present(environment, now_unix_ms),
-            ),
-            (
-                UNACCOUNTED_CODE,
-                instrumentation::unaccounted_code(environment, now_unix_ms),
-            ),
-            (
-                RUNTIME_BASELINE,
-                integrity::runtime_baseline(environment, self.baseline.as_ref(), now_unix_ms),
-            ),
-            (
-                SYSTEM_BUILD,
-                device_compromise::system_build(environment, now_unix_ms),
-            ),
+            guarded(PLATFORM_TRUST, now_unix_ms, || {
+                integrity::platform_trust(environment, now_unix_ms)
+            }),
+            guarded(EXPECTED_IDENTITY, now_unix_ms, || {
+                integrity::expected_identity(environment, self.expected.as_ref(), now_unix_ms)
+            }),
+            guarded(TRACER_PRESENT, now_unix_ms, || {
+                debugging::tracer_present(environment, now_unix_ms)
+            }),
+            guarded(UNACCOUNTED_CODE, now_unix_ms, || {
+                instrumentation::unaccounted_code(environment, now_unix_ms)
+            }),
+            guarded(RUNTIME_BASELINE, now_unix_ms, || {
+                integrity::runtime_baseline(environment, self.baseline.as_ref(), now_unix_ms)
+            }),
+            guarded(SYSTEM_BUILD, now_unix_ms, || {
+                device_compromise::system_build(environment, now_unix_ms)
+            }),
         ]
     }
 
@@ -124,10 +120,50 @@ impl Detectors {
     }
 }
 
+/// What a detector reports when it panics.
+const PANICKED: &str = "the detector panicked, so this scan reports its health";
+
+/// Runs one detector, and turns a panic into a `Low` health finding.
+///
+/// [Detectors and platforms](../../../../docs/plan/04-detectors-and-platforms.md)
+/// states the rule. A panic is neither a clean result nor an unsupported one,
+/// the detector reports its own health, and the worker continues. Without this
+/// the unwind leaves the scan, ends the only worker thread, and the runtime
+/// then reports nothing at all for the life of the process.
+///
+/// A repeated panic never disables the detector, because a detector that
+/// switches itself off is a target. Every later scan calls it again.
+///
+/// A host that builds with `panic = "abort"` gets no unwind and no catch. The
+/// process stops instead, which is that host's own choice.
+fn guarded(
+    detector: Detector,
+    now_unix_ms: u64,
+    scan: impl FnOnce() -> Outcome,
+) -> (Detector, Outcome) {
+    // The closure reads the environment through a shared reference and writes
+    // no state that outlives the call, so a panic leaves nothing half written
+    // for a later scan to read. The engine owns every value that survives, and
+    // this call touches none of it.
+    let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(scan));
+    let outcome = caught.unwrap_or_else(|_| {
+        Outcome::Finding(Finding::new(
+            detector,
+            SignalStrength::Low,
+            Evidence::DetectorHealth {
+                detail: BoundedText::new(PANICKED),
+            },
+            now_unix_ms,
+        ))
+    });
+    (detector, outcome)
+}
+
 #[cfg(test)]
 mod tests {
     use fidelity_core::{
-        CodeIdentity, CodeOrigin, IdentityMatch, Observation, PlatformTrust, Signer, TracerState,
+        CodeIdentity, CodeOrigin, CodeRegions, IdentityMatch, Observation, PlatformTrust, Region,
+        Signer, TracerState,
     };
     use fidelity_testkit::FakeEnvironment;
     use fidelity_types::{
@@ -136,10 +172,63 @@ mod tests {
     };
 
     use super::{
-        Detectors, EXPECTED_IDENTITY, INVENTORY, PLATFORM_TRUST, TRACER_PRESENT, UNACCOUNTED_CODE,
+        Detectors, EXPECTED_IDENTITY, INVENTORY, PLATFORM_TRUST, RUNTIME_BASELINE, TRACER_PRESENT,
+        UNACCOUNTED_CODE,
     };
 
     const NOW: u64 = 1_700_000_000_000;
+
+    /// An environment whose tracer capability panics.
+    ///
+    /// No fake supplies this, because a fake answers with a value and this one
+    /// answers with an unwind. It is the only way to reach the catch.
+    struct PanickingTracer;
+
+    impl fidelity_core::Lifecycle for PanickingTracer {}
+    impl fidelity_core::Baseline for PanickingTracer {}
+    impl fidelity_core::Injection for PanickingTracer {}
+    impl fidelity_core::Identity for PanickingTracer {}
+    impl fidelity_core::Device for PanickingTracer {}
+
+    impl fidelity_core::Tracer for PanickingTracer {
+        fn tracer_state(&self) -> Observation<TracerState> {
+            panic!("the probe broke")
+        }
+    }
+
+    impl fidelity_core::Environment for PanickingTracer {
+        fn platform(&self) -> fidelity_types::Platform {
+            fidelity_types::Platform::Linux
+        }
+    }
+
+    #[test]
+    fn a_capability_that_panics_reports_health_and_the_scan_still_answers() {
+        // The rule is in `04-detectors-and-platforms.md`: a panic is neither a
+        // clean result nor an unsupported one, and the worker continues.
+        // Without the catch this unwind ends the only worker thread, and the
+        // runtime then reports nothing for the life of the process. The test
+        // prints the panic that it causes, and that output is expected.
+        let outcomes = Detectors::new(None, None).scan_cheap(&PanickingTracer, NOW);
+
+        assert_eq!(
+            outcomes.len(),
+            INVENTORY.len(),
+            "every detector still answers"
+        );
+
+        let Some((_, outcome)) = outcomes
+            .iter()
+            .find(|(detector, _)| *detector == TRACER_PRESENT)
+        else {
+            panic!("the tracer detector must answer")
+        };
+        let Outcome::Finding(finding) = outcome else {
+            panic!("a panic must produce a finding")
+        };
+        assert_eq!(finding.strength(), SignalStrength::Low);
+        assert!(finding.evidence().is_detector_health());
+    }
 
     fn accepted() -> CodeIdentity {
         CodeIdentity::new(
@@ -433,6 +522,30 @@ mod tests {
         assert!(matches!(
             outcome_of(&FakeEnvironment::new(), None, UNACCOUNTED_CODE),
             Outcome::Unsupported { .. }
+        ));
+    }
+    #[test]
+    fn a_region_that_turned_writable_after_start_reports_a_finding() {
+        // The region keeps its first address, so the added-code rule reports
+        // nothing for it. Without the protection half the process runs
+        // writable code and the detector stays clean.
+        let at_start = CodeRegions::new(vec![Region::new(0x1000, 0x2000, false)]);
+        let now = CodeRegions::new(vec![Region::new(0x1000, 0x2000, true)]);
+        let environment = FakeEnvironment::default().with_code_regions(Observation::Fact(now));
+
+        let outcomes = Detectors::new(None, Some(at_start)).scan_cheap(&environment, NOW);
+        let Some((_, outcome)) = outcomes
+            .iter()
+            .find(|(detector, _)| *detector == RUNTIME_BASELINE)
+        else {
+            panic!("the baseline detector must answer")
+        };
+        let Outcome::Finding(finding) = outcome else {
+            panic!("a protection change must produce a finding")
+        };
+        assert!(matches!(
+            finding.evidence(),
+            Evidence::CodeMadeWritable { .. }
         ));
     }
 }
