@@ -20,6 +20,7 @@ pub const MAX_EVIDENCE_BYTES: usize = 4096;
 /// assert_eq!(short.text(), "mach_task_self returned KERN_FAILURE");
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct BoundedText {
     text: String,
     truncated: bool,
@@ -71,6 +72,7 @@ impl BoundedText {
 /// its clean and hostile evidence.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum Evidence {
     /// A detector could not complete its check.
     ///

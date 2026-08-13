@@ -10,6 +10,7 @@ use crate::Finding;
 ///
 /// The enumeration stays exhaustive, so a host match needs no wildcard arm.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum Outcome {
     /// The check did not run.
     ///

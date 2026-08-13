@@ -7,7 +7,7 @@
 //! about the shape of the workspace has to see the workspace, and a compile
 //! error would arrive too late for the rules about dependency direction.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -36,6 +36,45 @@ fn crates() -> BTreeMap<String, String> {
         }
     }
     assert!(!found.is_empty(), "the workspace must hold crates");
+    found
+}
+
+/// Every dependency that one manifest declares, by name.
+///
+/// The root manifest states each internal path and version once, so a crate
+/// manifest writes `name.workspace = true` and holds no path at all. A rule
+/// that searched a manifest for a path would pass for that reason alone, and
+/// it would never fail again. This reads the declared names, and it sees the
+/// plain form and the inherited form alike.
+fn declared_dependencies(manifest: &str) -> BTreeSet<String> {
+    let mut found = BTreeSet::new();
+    let mut inside = false;
+    for line in manifest.lines() {
+        let line = line.trim();
+        if line.starts_with('[') {
+            // `[dependencies]`, `[dev-dependencies]`, `[build-dependencies]`,
+            // `[workspace.dependencies]`, and a target section all end alike.
+            inside = line.ends_with("dependencies]");
+            continue;
+        }
+        if !inside || line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((key, _)) = line.split_once('=') else {
+            continue;
+        };
+        // `serde = { ... }` states the name alone. `serde.workspace = true`
+        // states the name and one field, so the name ends at the first dot.
+        let name = key
+            .trim()
+            .split('.')
+            .next()
+            .unwrap_or_default()
+            .trim_matches('"');
+        if !name.is_empty() {
+            found.insert(name.to_owned());
+        }
+    }
     found
 }
 
@@ -69,9 +108,10 @@ fn a_probe_crate_never_imports_a_detector_or_the_engine() {
         if !is_probe(&name) {
             continue;
         }
+        let declared = declared_dependencies(&manifest);
         for forbidden in ["fidelity-detect", "fidelity-engine", "fidelity-macros"] {
             assert!(
-                !manifest.contains(forbidden),
+                !declared.contains(forbidden),
                 "{name} depends on {forbidden}, and a probe must report facts only"
             );
         }
@@ -85,7 +125,7 @@ fn a_probe_crate_never_depends_on_the_facade() {
     for (name, manifest) in crates() {
         if is_probe(&name) {
             assert!(
-                !manifest.contains("path = \"../../fidelity\""),
+                !declared_dependencies(&manifest).contains("fidelity"),
                 "{name} depends on the facade, which inverts the layering"
             );
         }
@@ -151,10 +191,18 @@ fn no_crate_takes_a_remote_network_dependency() {
         "tokio-tungstenite",
         "quinn",
     ];
-    for (name, manifest) in crates() {
+    // The root manifest states every shared dependency, so it is the first
+    // place such a crate would arrive. It is read here beside the crates.
+    let mut manifests = crates();
+    let root = fs::read_to_string(root().join("Cargo.toml"))
+        .unwrap_or_else(|error| panic!("the workspace manifest must exist: {error}"));
+    manifests.insert("the workspace".to_owned(), root);
+
+    for (name, manifest) in manifests {
+        let declared = declared_dependencies(&manifest);
         for dependency in FORBIDDEN {
             assert!(
-                !manifest.contains(&format!("\n{dependency} ")),
+                !declared.contains(*dependency),
                 "{name} depends on {dependency}, and ADR-0004 prohibits a remote network client"
             );
         }

@@ -5,8 +5,17 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories = ["security"]
 
 [dependencies]
+serde = { workspace = true, optional = true }
+
+[features]
+# Provides `Serialize` for the public types, so a host that exports a finding
+# chooses its own format. Fidelity serializes nothing itself.
+serde = ["dep:serde"]
 
 [lints]
 workspace = true

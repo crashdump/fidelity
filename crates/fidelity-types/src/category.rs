@@ -7,6 +7,7 @@
 /// category after v1. A host match therefore needs a wildcard arm.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum Category {
     /// Something modified executable code, a trusted image, or process state.
     Integrity,
@@ -84,6 +85,7 @@ impl Category {
 /// assert_eq!(set.len(), 1);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct CategorySet(u32);
 
 impl CategorySet {

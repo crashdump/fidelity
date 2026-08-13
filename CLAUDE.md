@@ -241,8 +241,9 @@ Two deliberate deviations from the skills, with the reason. Do not "fix" either 
 
 - **No `thiserror`.** The skill recommends it for a library error. Fidelity writes `Display` and
   `Error` by hand, because `thiserror` pulls a proc-macro chain into the dependency tree of a
-  security library. The workspace holds no external dependency, and that supply-chain property is
-  worth more than the saved lines.
+  security library. A default build of the workspace resolves to no external crate, and that
+  supply-chain property is worth more than the saved lines. The optional `serde` feature is the one
+  exception, and a host asks for it on purpose.
 - **No `criterion`, `proptest`, `rstest`, or `mockall`.** Same reason. A measurement runs as an
   example that prints its numbers, and a fake environment is a plain struct in `fidelity-testkit`.
 

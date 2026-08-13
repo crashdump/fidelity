@@ -6,6 +6,7 @@ use core::fmt;
 /// after v1.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum Platform {
     /// Windows on ARM64 or `x86_64`.
     Windows,
@@ -48,6 +49,7 @@ impl Platform {
 /// baseline still runs. A host that calls the builder setter makes the check
 /// required, and must then state a choice for every platform it ships to.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum Choice<T> {
     /// Fidelity compares the running image against this value.
     Value(T),
@@ -79,6 +81,7 @@ pub enum Choice<T> {
 /// # Ok::<(), fidelity_types::IdentityError>(())
 /// ```
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ExpectedIdentity {
     windows: Option<Choice<AuthenticodeThumbprint>>,
     macos: Option<Choice<CodeRequirement>>,
@@ -186,6 +189,7 @@ impl ExpectedIdentity {
 
 /// An Authenticode signer thumbprint, as a SHA-256 digest.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct AuthenticodeThumbprint([u8; 32]);
 
 impl AuthenticodeThumbprint {
@@ -213,6 +217,7 @@ impl AuthenticodeThumbprint {
 
 /// An Android signing certificate, as a SHA-256 digest.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct CertificateSha256([u8; 32]);
 
 impl CertificateSha256 {
@@ -240,6 +245,7 @@ impl CertificateSha256 {
 
 /// A macOS code requirement string.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct CodeRequirement(String);
 
 impl CodeRequirement {
@@ -268,6 +274,7 @@ impl CodeRequirement {
 
 /// An Apple team identifier, read from the App ID prefix.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct TeamIdentifier(String);
 
 impl TeamIdentifier {
@@ -298,6 +305,7 @@ impl TeamIdentifier {
 ///
 /// The length varies with the hash that the deployment enables for fs-verity.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ContentDigest(Vec<u8>);
 
 impl ContentDigest {
@@ -327,6 +335,7 @@ impl ContentDigest {
 /// with new platforms.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum IdentityError {
     /// The value holds no content.
     Empty,

@@ -5,12 +5,15 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories = ["os", "security"]
 
 [target.'cfg(target_os = "android")'.dependencies]
-fidelity-cipher = { path = "../../fidelity-cipher", version = "0.0.0" }
-fidelity-core = { path = "../../fidelity-core", version = "0.0.0" }
-fidelity-formats = { path = "../../fidelity-formats", version = "0.0.0" }
-fidelity-types = { path = "../../fidelity-types", version = "0.0.0" }
+fidelity-cipher.workspace = true
+fidelity-core.workspace = true
+fidelity-formats.workspace = true
+fidelity-types.workspace = true
 
 [lints]
 workspace = true

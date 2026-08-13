@@ -5,12 +5,15 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories = ["development-tools::procedural-macro-helpers", "security"]
 
 [lib]
 proc-macro = true
 
 [dependencies]
-fidelity-cipher = { path = "../fidelity-cipher", version = "0.0.0" }
+fidelity-cipher.workspace = true
 
 [lints]
 workspace = true

@@ -5,10 +5,13 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories = ["os::windows-apis", "security"]
 
 [target.'cfg(target_os = "windows")'.dependencies]
-fidelity-core = { path = "../../fidelity-core", version = "0.0.0" }
-fidelity-types = { path = "../../fidelity-types", version = "0.0.0" }
+fidelity-core.workspace = true
+fidelity-types.workspace = true
 
 [lints]
 workspace = true

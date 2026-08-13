@@ -190,8 +190,10 @@ They must not shape the v1 public API early.
   `JNI_OnLoad`, because one shared library holds one such function and the host owns it. The worker
   attaches once as a daemon thread and never detaches, because the runtime never stops, and a plain
   attachment would keep the machine alive and stop the application from ending.
-- Dependencies are minimal, pinned, audited, and selected per target where possible. The workspace
-  holds no external dependency today, and a security library keeps that property while it can.
+- Dependencies are minimal, pinned, audited, and selected per target where possible. A default build
+  of the workspace resolves to no external crate, and a security library keeps that property while
+  it can. The optional `serde` feature is the one exception, and it is off by default, so a host
+  that never asks for it never gets it.
 - The engine does not require Tokio. The Tauri adapter may bridge findings to an application
   runtime without exposing them to the webview.
 - v1 exposes no C ABI and no other FFI entry point. Language bindings come after the Rust contract
@@ -217,7 +219,7 @@ CI runs each of these, and a change is complete only when all of them pass:
 | Command | Covers |
 |---|---|
 | `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | lints |
-| `cargo test --workspace` | every test layer that the host machine can run |
+| `cargo test --workspace --all-features` | every test layer that the host machine can run, and the optional `serde` surface |
 | `cargo fmt --check` | format |
 | `cargo doc --workspace --no-deps` | rustdoc, with no warning |
 | `cargo check --workspace --target <each of the five>` | every probe crate, from one machine |

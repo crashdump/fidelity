@@ -19,6 +19,7 @@
 /// assert!(SignalStrength::Medium > SignalStrength::Low);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum SignalStrength {
     /// An ambiguous posture, a health failure, or a heuristic with common
     /// benign explanations.

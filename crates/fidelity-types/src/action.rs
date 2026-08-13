@@ -15,6 +15,7 @@
 /// assert_eq!(Action::default(), Action::Report);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum Action {
     /// Publish the finding and keep running.
     ///

@@ -16,6 +16,7 @@ use crate::{Category, Detector, Evidence, SignalStrength};
 /// that v1 defines: the runtime records it in the category of the finding
 /// that the callback received, not in a category of its own.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Finding {
     detector: Detector,
     category: Category,

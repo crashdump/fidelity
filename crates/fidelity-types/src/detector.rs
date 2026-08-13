@@ -2,6 +2,19 @@ use core::hash::{Hash, Hasher};
 
 use crate::Category;
 
+/// Writes a detector as its name alone.
+///
+/// The identity is opaque, and `docs/plan/README.md` settles that, so the
+/// derived form is wrong here: it would publish the numeric identity as a
+/// field and invite a host to route on it. A host routes on the category and
+/// logs the name, so the name is what a report carries.
+#[cfg(feature = "serde")]
+impl serde::Serialize for Detector {
+    fn serialize<S: serde::Serializer>(&self, writer: S) -> Result<S::Ok, S::Error> {
+        writer.serialize_str(self.name)
+    }
+}
+
 /// An opaque identity for one built-in detector.
 ///
 /// The detector inventory is not a public enumeration, so a new detector is

@@ -6,6 +6,7 @@ use crate::{CategorySet, Detector, Finding, Outcome};
 /// cannot create a slot. Each slot holds a fixed set of fields, so repeated
 /// findings and recoveries never increase retained state.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct DetectorState {
     detector: Detector,
     outcome: Outcome,
@@ -97,6 +98,7 @@ impl DetectorState {
 /// The snapshot holds no event ring and no chronology, so nothing here grows
 /// with the number of findings.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Snapshot {
     latched: CategorySet,
     host_latched: CategorySet,

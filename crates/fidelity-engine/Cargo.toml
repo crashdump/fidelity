@@ -5,14 +5,17 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories = ["security"]
 
 [dependencies]
-fidelity-core = { path = "../fidelity-core", version = "0.0.0" }
-fidelity-detect = { path = "../fidelity-detect", version = "0.0.0" }
-fidelity-types = { path = "../fidelity-types", version = "0.0.0" }
+fidelity-core.workspace = true
+fidelity-detect.workspace = true
+fidelity-types.workspace = true
 
 [dev-dependencies]
-fidelity-testkit = { path = "../fidelity-testkit", version = "0.0.0" }
+fidelity-testkit.workspace = true
 
 [lints]
 workspace = true
