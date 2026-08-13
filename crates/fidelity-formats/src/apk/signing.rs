@@ -10,9 +10,9 @@
 //! crate depends on nothing and holds no hash. The capability hashes what this
 //! returns.
 //!
-//! Scheme v3 answers first where both are present. It is the newer block, and
-//! it is the one that carries a rotated key, so a reader that preferred v2
-//! would report the key that the application rotated away from.
+//! A newer scheme answers first, so the order is v3.1, then v3, then v2. An
+//! archive that rotated its key holds the current signer in v3.1 and the old
+//! one in v3, and every system above the v1 floor reads v3.1.
 
 /// The magic string that ends the block.
 const MAGIC: &[u8; 16] = b"APK Sig Block 42";
@@ -25,6 +25,18 @@ const SCHEME_V2: u32 = 0x7109_871a;
 
 /// The identifier of the scheme v3 block.
 const SCHEME_V3: u32 = 0xf053_68c0;
+
+/// The identifier of the scheme v3.1 block.
+///
+/// Checked against `V3SchemeConstants.java` in the AOSP `apksig` tool on
+/// 2026-08-13.
+const SCHEME_V31: u32 = 0x1b93_ad61;
+
+// Android 13, which is API 33, is the first system that reads a v3.1 block,
+// and `MIN_SDK_WITH_V31_SUPPORT` in the same file states that. The v1 floor in
+// `docs/plan/04-detectors-and-platforms.md` is API 34, so every system that
+// runs this reader reads that block, and the preference below needs no test
+// against the running SDK.
 
 /// The largest block that this reader walks, at 4 MiB.
 ///
@@ -91,8 +103,11 @@ pub fn signer_certificate(block: &[u8]) -> Option<&[u8]> {
         return None;
     }
 
-    // A later scheme wins, so the walk keeps looking after it finds v2.
-    let mut best = None;
+    // The walk reads every scheme it knows, because a block appears in any
+    // order and the newest one wins whatever that order is.
+    let mut v31 = None;
+    let mut v3 = None;
+    let mut v2 = None;
     let mut at = 8;
 
     while at < trailing {
@@ -103,15 +118,20 @@ pub fn signer_certificate(block: &[u8]) -> Option<&[u8]> {
         let value = block.get(start..end)?;
 
         match identifier {
-            SCHEME_V3 => return certificate(value),
-            SCHEME_V2 if best.is_none() => best = certificate(value),
+            SCHEME_V31 if v31.is_none() => v31 = certificate(value),
+            SCHEME_V3 if v3.is_none() => v3 = certificate(value),
+            SCHEME_V2 if v2.is_none() => v2 = certificate(value),
             _ => {}
         }
 
         at = end;
     }
 
-    best
+    // An archive that rotated its key carries the current signer in v3.1 and
+    // the signer it rotated away from in v3. Every supported system reads
+    // v3.1, so this reader prefers it. A reader that took v3 instead would
+    // report the old certificate, and a valid release would look repackaged.
+    v31.or(v3).or(v2)
 }
 
 /// Takes the first certificate out of one scheme block.
@@ -150,7 +170,9 @@ fn element(bytes: &[u8], at: usize) -> Option<&[u8]> {
 
 #[cfg(test)]
 mod tests {
-    use super::{block_length, signer_certificate};
+    use super::{
+        FOOTER, MAGIC, SCHEME_V2, SCHEME_V3, SCHEME_V31, block_length, signer_certificate,
+    };
     use crate::apk::zip::central_directory_offset;
 
     /// A real archive that `apksigner` signed with both schemes, recorded on
@@ -208,6 +230,81 @@ mod tests {
                 .windows(13)
                 .any(|window| window == b"fidelity test"),
             "the recorded certificate names its subject"
+        );
+    }
+
+    /// One length-prefixed element, which is how every level of the format
+    /// writes a value.
+    fn elem(payload: &[u8]) -> Vec<u8> {
+        let Ok(length) = u32::try_from(payload.len()) else {
+            panic!("a test value is never that long")
+        };
+        let mut out = length.to_le_bytes().to_vec();
+        out.extend_from_slice(payload);
+        out
+    }
+
+    /// A scheme block that carries one certificate.
+    ///
+    /// The nesting is the one that the reader walks: a sequence of signers, a
+    /// signer, its signed data, then the digests and the certificates.
+    fn scheme(certificate: &[u8]) -> Vec<u8> {
+        let mut signed_data = elem(b"digests");
+        signed_data.extend_from_slice(&elem(&elem(certificate)));
+        elem(&elem(&elem(&signed_data)))
+    }
+
+    /// A signing block that holds the stated identifier and value pairs.
+    fn signing_block(entries: &[(u32, Vec<u8>)]) -> Vec<u8> {
+        let mut body = Vec::new();
+        for (identifier, value) in entries {
+            let Ok(length) = u64::try_from(value.len() + 4) else {
+                panic!("a test value is never that long")
+            };
+            body.extend_from_slice(&length.to_le_bytes());
+            body.extend_from_slice(&identifier.to_le_bytes());
+            body.extend_from_slice(value);
+        }
+
+        let Ok(size) = u64::try_from(body.len() + FOOTER) else {
+            panic!("a test block is never that long")
+        };
+        let mut block = size.to_le_bytes().to_vec();
+        block.extend_from_slice(&body);
+        block.extend_from_slice(&size.to_le_bytes());
+        block.extend_from_slice(MAGIC);
+        block
+    }
+
+    #[test]
+    fn a_rotated_archive_reports_the_signer_that_android_selects() {
+        // An archive that rotated its key carries the current signer in v3.1
+        // and the signer it rotated away from in v3. Every supported system
+        // reads v3.1, so a reader that took v3 would report the old
+        // certificate and a valid release would look repackaged. The v3 block
+        // is written last on purpose, because the answer must not depend on
+        // the order.
+        let block = signing_block(&[
+            (SCHEME_V31, scheme(b"the current certificate")),
+            (SCHEME_V2, scheme(b"the v2 certificate")),
+            (SCHEME_V3, scheme(b"the rotated away certificate")),
+        ]);
+        assert_eq!(
+            signer_certificate(&block),
+            Some(b"the current certificate".as_slice())
+        );
+    }
+
+    #[test]
+    fn an_archive_with_no_rotation_still_reports_its_v3_signer() {
+        // The common case keeps working: no v3.1 block, so v3 answers.
+        let block = signing_block(&[
+            (SCHEME_V2, scheme(b"the v2 certificate")),
+            (SCHEME_V3, scheme(b"the v3 certificate")),
+        ]);
+        assert_eq!(
+            signer_certificate(&block),
+            Some(b"the v3 certificate".as_slice())
         );
     }
 
