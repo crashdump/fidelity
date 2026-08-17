@@ -12,8 +12,9 @@
 # repeatable, so the image is an artifact rather than a machine that a person
 # set up by hand.
 #
+#     evidence/vm/make-key.sh
 #     packer init evidence/vm/linux
-#     packer build evidence/vm/linux
+#     packer build -force evidence/vm/linux
 
 packer {
   required_plugins {
@@ -65,8 +66,8 @@ source "qemu" "linux" {
   ]
 
   # cloud-init reads a volume that carries the label `cidata`. The build
-  # account uses a password, so the SSH communicator needs no key material and
-  # the template stays self-contained.
+  # account takes a password for the SSH communicator, and it takes the key
+  # from `make-key.sh` for the harness, so run that script before this build.
   cd_label = "cidata"
   cd_content = {
     "meta-data" = "instance-id: fidelity-linux\nlocal-hostname: fidelity-linux\n"
@@ -78,6 +79,8 @@ source "qemu" "linux" {
           shell: /bin/bash
           lock_passwd: false
           plain_text_passwd: fidelity
+          ssh_authorized_keys:
+            - ${trimspace(file("${abspath(path.root)}/../../../target/vm/id_ed25519.pub"))}
       ssh_pwauth: true
     EOF
   }
@@ -87,8 +90,10 @@ source "qemu" "linux" {
   ssh_password = "fidelity"
   ssh_timeout  = "10m"
 
-  # The one artifact this build produces.
-  output_directory = "${path.root}/../../../target/vm/linux"
+  # The one artifact this build produces. The parent directory is staging
+  # space, and Packer owns `image/` alone, because it deletes and recreates
+  # its output directory on every build.
+  output_directory = "${path.root}/../../../target/vm/linux/image"
   vm_name          = "disk.qcow2"
 
   shutdown_command = "sudo poweroff"

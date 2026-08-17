@@ -5,8 +5,8 @@
 # an inbox driver. Microsoft removed the inbox RNDIS driver that a USB network
 # device needs, so a guest with one reports no adapter at all. The virtio
 # network device answers, and the driver for it ships in the virtio-win
-# project. The install-time answer file names this driver, so the guest has a
-# network from the first boot rather than after a person installs one.
+# project. `setup.ps1` installs this driver at the first logon, from the
+# answer disk, so no person installs one.
 #
 # The driver is a third-party binary, so it is not committed. This script
 # fetches it, and the Packer build reads it from the same place.
@@ -22,7 +22,7 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
 OUT=$ROOT/target/vm/windows/drivers/netkvm
 CACHE=$ROOT/target/vm/windows/virtio-win-$VERSION.iso
 
-if [ -f "$OUT/netkvm.inf" ] && [ -f "$OUT/netkvm.sys" ] && [ -f "$OUT/netkvm.cat" ]; then
+if [ -f "$OUT/netkvm.inf" ] && [ -f "$OUT/netkvm.sys" ] && [ -f "$OUT/netkvmp.exe" ]; then
     echo "the virtio drivers are already under $ROOT/target/vm/windows/drivers"
     exit 0
 fi
@@ -44,20 +44,34 @@ mount=$(hdiutil attach -readonly -nobrowse "$CACHE" 2>/dev/null |
     exit 1
 }
 
-# Only the three files that install the driver. The image also holds debug
-# symbols and helper programs that the guest does not need.
+# The INF, the catalog that signs it, and every file the INF names. The image
+# also holds debug symbols, which the guest does not need.
+#
+# The INF lists the files it installs in `[SourceDisksFiles]`, so this reads
+# that list rather than guess it. An earlier version copied `.inf`, `.sys`,
+# and `.cat` only. That list left out `netkvmp.exe`, which `netkvm.inf`
+# names, so `pnputil` refused the package with "the system cannot find the
+# file specified". The guest then had no network, and the build waited for an
+# SSH server that never started. Measured on 2026-08-15.
 #
 # NetKVM is the network driver, and it is the one the guest cannot boot a
 # network without. viostor is the disk driver, kept beside it because a build
 # that puts the system disk on the virtio bus needs it during setup, and a
 # build that uses NVMe does not read it.
 for driver in NetKVM viostor; do
-    dest=$ROOT/target/vm/windows/drivers/$(printf '%s' "$driver" | tr 'A-Z' 'a-z')
+    name=$(printf '%s' "$driver" | tr 'A-Z' 'a-z')
+    src=$mount/$driver/w11/ARM64
+    dest=$ROOT/target/vm/windows/drivers/$name
     mkdir -p "$dest"
-    for ext in inf sys cat; do
-        name=$(printf '%s' "$driver" | tr 'A-Z' 'a-z')
-        cp "$mount/$driver/w11/ARM64/$name.$ext" "$dest/$name.$ext"
-    done
+    cp "$src/$name.inf" "$dest/$name.inf"
+    cp "$src/$name.cat" "$dest/$name.cat"
+    tr -d '\r' < "$src/$name.inf" |
+        awk '/^\[SourceDisksFiles\]/ { list = 1; next }
+             /^\[/ { list = 0 }
+             list && $1 ~ /\./ { print $1 }' |
+        while read -r file; do
+            cp "$src/$file" "$dest/$file"
+        done
 done
 hdiutil detach "$mount" -quiet 2>/dev/null || true
 

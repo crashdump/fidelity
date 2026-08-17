@@ -4,8 +4,8 @@ Guidance for Claude Code in this repository. `AGENTS.md` is a symbolic link to t
 
 ## 0. The one rule that applies everywhere
 
-**All language in this project uses ASD-STE100 Simplified Technical English.** This is not a
-documentation style. It applies to every word this project produces:
+**This project uses ASD-STE100 Simplified Technical English, and no other English.** This is not a
+documentation style. It applies to every word you write here, in a file and in a message:
 
 | Surface | STE applies |
 |---|---|
@@ -13,8 +13,12 @@ documentation style. It applies to every word this project produces:
 | Rustdoc comments, `//` comments, and `# Safety` notes | yes |
 | Error messages, `Display` and `Debug` text, and `tracing` messages | yes |
 | Commit messages, pull request titles and bodies | yes |
+| Answers to the user, a plan, and a summary of your work | yes |
+| A shell script, a comment in it, and the text it prints | yes |
 | Identifiers, when a plain word and a clever word both fit | yes |
 | Quoted standards text, third-party names, and code output | no, quote them exactly |
+
+A short answer, a scratch file, and a temporary note get the same rules. Speed is not an exception.
 
 Section 2 gives the rules. Section 3 gives the word list. When a rule and clarity conflict, choose
 clarity and record the exception in section 3.
@@ -24,12 +28,13 @@ clarity and record the exception in section 3.
 `fidelity` is an open-source Rust library. It detects changes to an application's runtime
 environment and applies a response that the host application selects.
 
-Four platforms run, each with real clean and hostile evidence. All four compare executable memory
-against a baseline that `start()` captured, and all four read tracer state. macOS adds image
-identity and `guarded!()`, and Linux and Android add unaccounted code. The iOS evidence comes from
-the simulator, so a device has still to confirm it. Windows returns
-`StartError::PlatformUnavailable`, and its probe crate is a labeled skeleton. No platform is
-supported yet, because that needs the full release evidence.
+Five platforms run, each with real clean and hostile evidence. All five compare executable memory
+against a baseline that `start()` captured, and all five read tracer state. macOS adds image
+identity and `guarded!()`, and Linux, Android, and Windows add unaccounted code. The iOS evidence
+comes from the simulator, so a device has still to confirm it. The Windows evidence comes from the
+QEMU guest that `evidence/vm/windows/` builds. The Windows identity controls sign the subject in
+that guest, because the tier reads the signature of the running image. No platform is supported
+yet, because that needs the full release evidence.
 
 Capabilities are traits, in `fidelity-core/src/capability/`. Operating systems are crates, under
 `crates/probe/`. `docs/plan/06-delivery.md` holds both axes and the shape that every probe crate

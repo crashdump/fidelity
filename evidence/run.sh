@@ -481,12 +481,17 @@ if [ -n "$LINUX_HOW" ]; then
     # the page size, and `mkfs.ext4` chooses 1024-byte blocks for an image this
     # small, so `-b 4096` is not optional: without it the enable fails with
     # EINVAL, which names nothing.
+    # The teardown comes first, because a guest keeps its state between runs.
+    # An earlier run leaves the image mounted on a loop device, and `mkfs`
+    # against a mounted image then fails, so the second run of the day
+    # reported `/tmp/verity.img is already mounted`. Measured on 2026-08-16.
     verity_linux() {
-        linux 'sudo /sbin/mkfs.ext4 -q -b 4096 -O verity -F /tmp/verity.img 2>/dev/null ||
-                { dd if=/dev/zero of=/tmp/verity.img bs=1M count=256 status=none &&
-                  sudo /sbin/mkfs.ext4 -q -b 4096 -O verity -F /tmp/verity.img; } &&
+        linux 'sudo umount /mnt/verity 2> /dev/null || true;
+            sudo losetup -j /tmp/verity.img | cut -d: -f1 |
+                xargs -r -n1 sudo losetup -d 2> /dev/null || true;
+            dd if=/dev/zero of=/tmp/verity.img bs=1M count=256 status=none &&
+            sudo /sbin/mkfs.ext4 -q -b 4096 -O verity -F /tmp/verity.img &&
             sudo mkdir -p /mnt/verity &&
-            sudo umount /mnt/verity 2>/dev/null;
             sudo mount -o loop /tmp/verity.img /mnt/verity &&
             cargo build --quiet --example identity -p fidelity &&
             sudo cp /var/tmp/target/debug/examples/identity /mnt/verity/identity &&
@@ -526,21 +531,31 @@ fi
 # `controls/attach-windows.c` is the tracer, and each one takes a process
 # identifier or a program, in the same two forms that `attach.c` takes on Linux.
 #
-# A Windows probe answers only on Windows, so this whole section skips
-# elsewhere. The cross-check above still builds the crate from every machine.
+# A Windows probe answers only on Windows, so a control here needs a Windows
+# machine. The cross-check above still builds the crate from every machine.
 #
 # Two machines reach these controls. A Windows runner is one, and the guest
-# that `controls/windows-vm.sh` manages is the other. The Linux controls
-# already take the second shape, because Docker on a Mac is a Linux virtual
-# machine, so this adds no pattern that the harness did not hold.
+# that `controls/vm.sh` manages is the other. Both forms run the same command
+# text, and only the place changes, so a control cannot drift between them.
+# The Linux section above takes the same shape.
+#
+# The guest reads the workspace at C:\work, because Windows drives no 9p, so
+# the copy travels once before the first control runs. The Linux guest mounts
+# the workspace instead, and that is the only difference between the two.
+#
+# `controls/build-control.sh` compiles a control in either place. It picks the
+# compiler, and it converts a path with `cygpath`, so this file names neither.
+#
+# Each command text stays in single quotes, so the shell that runs it expands
+# `cygpath`. The guest expands in the guest, and a runner expands on the
+# runner. Double quotes would expand on the Mac, which holds no `cygpath`.
 WINDOWS=no
 case "$(uname -s)" in
     MINGW* | MSYS* | CYGWIN*) WINDOWS=yes ;;
 esac
 
-# Any of three compilers builds a control here, and the harness takes the first
-# one it finds. A workflow that installed one would add a supply-chain
-# dependency to the gate, and this project keeps that surface at zero.
+# A runner needs a compiler of its own. The guest gets one from the Packer
+# build, so only the native form asks.
 WINDOWS_CC=''
 for candidate in cl clang gcc; do
     if command -v "$candidate" > /dev/null 2>&1; then
@@ -549,81 +564,141 @@ for candidate in cl clang gcc; do
     fi
 done
 
+WINDOWS_HOW=''
 if [ "$WINDOWS" = yes ] && [ -n "$WINDOWS_CC" ]; then
-    EXE=$ROOT/target/debug/examples
-
-    # A native Windows program takes a native path. A shell here is Git Bash,
-    # which reports `/d/a/fidelity`, and `CreateProcess` cannot open that. The
-    # controls take a path as an argument, so every one of them needs the
-    # native form. `cygpath` ships with that shell and does the conversion.
-    native() {
-        if command -v cygpath > /dev/null 2>&1; then
-            cygpath -w "$1"
-        else
-            printf '%s' "$1"
-        fi
+    WINDOWS_HOW="on this machine"
+    windows() {
+        sh -c "cd $ROOT &&
+            export FIDELITY_BUILD_SEED=test FIDELITY_CODE_IDENTITY=none &&
+            $*"
     }
-
-    build_control() {
-        source=$(native "$ROOT/evidence/controls/$1.c")
-        binary=$(native "$OUT/$1.exe")
-        case $WINDOWS_CC in
-            cl) (cd "$OUT" && cl /nologo /W4 "/Fe:$binary" "$source") > /dev/null ;;
-            *) "$WINDOWS_CC" -O1 -o "$binary" "$source" ;;
-        esac
+elif "$ROOT/evidence/controls/vm.sh" windows status > /dev/null 2>&1; then
+    WINDOWS_HOW="in the guest"
+    "$ROOT/evidence/controls/vm.sh" windows push > /dev/null 2>&1 ||
+        WINDOWS_HOW=''
+    windows() {
+        "$ROOT/evidence/controls/vm.sh" windows run "cd /c/work &&
+            export FIDELITY_BUILD_SEED=test FIDELITY_CODE_IDENTITY=none &&
+            $*"
     }
+fi
 
+if [ -n "$WINDOWS_HOW" ]; then
     # The clean control for both memory detectors, and the boundary tests that
     # only this system can run.
-    windows_probe_tests() { cargo test --quiet -p fidelity-probe-windows; }
+    windows_probe_tests() {
+        windows 'cargo test --quiet -p fidelity-probe-windows'
+    }
+    cost_windows() {
+        windows 'cargo run --release --quiet --example cost \
+            -p fidelity-probe-windows'
+    }
+
+    # The image-identity set. Every arm needs a signed subject, so
+    # `controls/sign-windows.ps1` makes one certificate that the machine
+    # anchors and one that it does not, and it signs a copy with each. The
+    # host pins the SHA-256 of a certificate, and the detector compares that
+    # against the certificate that signed the running image.
+    #
+    # The script writes to the root store of the machine, so these arms run in
+    # the guest and nowhere else. A guest throws its overlay away, and a
+    # runner would keep the anchor.
+    SIGN='powershell -NoProfile -ExecutionPolicy Bypass \
+        -File evidence/controls/sign-windows.ps1 \
+        -Source "$(cygpath -w target/debug/examples/identity.exe)" \
+        -OutDir "$(cygpath -w target/evidence)"'
+    identity_clean_windows() {
+        windows "cargo build --quiet --example identity -p fidelity &&
+            $SIGN &&
+            target/evidence/signed-trusted.exe \
+                \"\$(cat target/evidence/trusted-sha256.txt)\"" |
+            grep 'protected operation: allowed'
+    }
+    # The image carries a signature that validates, and the host pinned
+    # another signer. That is a repackage that kept a valid signature.
+    identity_other_signer_windows() {
+        windows "cargo build --quiet --example identity -p fidelity &&
+            $SIGN &&
+            target/evidence/signed-trusted.exe \
+                \"\$(cat target/evidence/untrusted-sha256.txt)\"" |
+            grep 'expected_identity: High'
+    }
+    # The image carries a signature that nothing anchors. Both tiers report,
+    # and the platform-trust tier states that the signature did not validate,
+    # which is the branch that neither other arm reaches.
+    identity_untrusted_windows() {
+        windows "cargo build --quiet --example identity -p fidelity &&
+            $SIGN &&
+            target/evidence/signed-untrusted.exe \
+                \"\$(cat target/evidence/trusted-sha256.txt)\"" |
+            grep 'did not validate'
+    }
 
     inject_clean_windows() {
-        cargo build --quiet --example inject -p fidelity || return 1
-        "$EXE/inject.exe" | grep 'unaccounted_code: clean'
+        windows 'cargo build --quiet --example inject -p fidelity &&
+            target/debug/examples/inject.exe' |
+            grep 'unaccounted_code: clean'
     }
     # The region is in place before the subject runs its first instruction,
     # which is what a preloaded library gives on Linux.
     inject_hostile_windows() {
-        cargo build --quiet --example inject -p fidelity || return 1
-        build_control inject-windows || return 1
-        "$OUT/inject-windows.exe" "$(native "$EXE/inject.exe")" |
+        windows 'cargo build --quiet --example inject -p fidelity &&
+            sh evidence/controls/build-control.sh inject-windows &&
+            target/evidence/inject-windows.exe \
+                "$(cygpath -w target/debug/examples/inject.exe)"' |
             grep 'unaccounted_code: Medium'
     }
 
     # The runtime-baseline pair. The hostile half maps into a process that
     # already captured its baseline, so only the worker can catch it.
     baseline_hostile_windows() {
-        cargo build --quiet --example late -p fidelity || return 1
-        build_control inject-windows || return 1
-        "$ROOT/evidence/controls/trace-after-start.sh" \
-            "$EXE/late.exe" "$OUT/inject-windows.exe"
+        windows 'cargo build --quiet --example late -p fidelity &&
+            sh evidence/controls/build-control.sh inject-windows &&
+            sh evidence/controls/trace-after-start.sh \
+                target/debug/examples/late.exe \
+                target/evidence/inject-windows.exe'
     }
     baseline_clean_windows() {
-        cargo build --quiet --example late -p fidelity || return 1
-        "$EXE/late.exe"
+        windows 'cargo build --quiet --example late -p fidelity &&
+            target/debug/examples/late.exe'
     }
 
     # The tracer set, in the same three shapes as macOS and Linux.
     tracer_clean_windows() {
-        cargo build --quiet --example tracer -p fidelity || return 1
-        "$EXE/tracer.exe" | grep 'tracer_present: clean'
+        windows 'cargo build --quiet --example tracer -p fidelity &&
+            target/debug/examples/tracer.exe' |
+            grep 'tracer_present: clean'
     }
     tracer_at_start_windows() {
-        cargo build --quiet --example tracer -p fidelity || return 1
-        build_control attach-windows || return 1
-        "$OUT/attach-windows.exe" "$(native "$EXE/tracer.exe")" |
+        windows 'cargo build --quiet --example tracer -p fidelity &&
+            sh evidence/controls/build-control.sh attach-windows &&
+            target/evidence/attach-windows.exe \
+                "$(cygpath -w target/debug/examples/tracer.exe)"' |
             grep 'protected operation: denied'
     }
     tracer_attaches_windows() {
-        cargo build --quiet --example attach -p fidelity || return 1
-        build_control attach-windows || return 1
-        "$ROOT/evidence/controls/trace-after-start.sh" \
-            "$EXE/attach.exe" "$OUT/attach-windows.exe"
+        windows 'cargo build --quiet --example attach -p fidelity &&
+            sh evidence/controls/build-control.sh attach-windows &&
+            sh evidence/controls/trace-after-start.sh \
+                target/debug/examples/attach.exe \
+                target/evidence/attach-windows.exe'
     }
 
     run Windows windows-probe-tests windows_probe_tests
-    run Windows cost-windows cargo run --release --quiet --example cost \
-        -p fidelity-probe-windows
+    run Windows cost-windows cost_windows
+    # The identity arms anchor a certificate on the machine that runs them, so
+    # they take the guest and they skip everywhere else.
+    if [ "$WINDOWS_HOW" = "in the guest" ]; then
+        run Windows identity-clean-windows identity_clean_windows
+        run Windows identity-other-signer-windows identity_other_signer_windows
+        run Windows identity-untrusted-windows identity_untrusted_windows
+    else
+        for control in identity-clean-windows identity-other-signer-windows \
+            identity-untrusted-windows; do
+            skip Windows "$control" "this arm anchors a certificate on the machine, so it \
+takes the guest: evidence/controls/vm.sh windows start"
+        done
+    fi
     run Windows inject-clean-windows inject_clean_windows
     run Windows inject-hostile-windows inject_hostile_windows
     run Windows baseline-hostile-windows baseline_hostile_windows
@@ -635,12 +710,13 @@ if [ "$WINDOWS" = yes ] && [ -n "$WINDOWS_CC" ]; then
 else
     if [ "$WINDOWS" = yes ]; then
         WHY="no cl, clang, or gcc on the path, so no control compiles"
-    elif "$ROOT/evidence/controls/windows-vm.sh" status > /dev/null 2>&1; then
-        WHY="a Windows guest answers, and the harness does not drive it yet"
     else
-        WHY="this machine runs no Windows, and controls/windows-vm.sh has no guest"
+        WHY="this machine runs no Windows, and no guest answers: \
+evidence/controls/vm.sh windows start"
     fi
     for control in windows-probe-tests cost-windows \
+        identity-clean-windows identity-other-signer-windows \
+        identity-untrusted-windows \
         inject-clean-windows inject-hostile-windows \
         baseline-hostile-windows baseline-clean-windows \
         tracer-clean-windows tracer-at-start-windows tracer-attaches-windows; do

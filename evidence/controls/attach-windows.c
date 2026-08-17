@@ -42,6 +42,13 @@ static int pump(void) {
             return 0;
         }
         if (event.dwDebugEventCode == EXIT_PROCESS_DEBUG_EVENT) {
+            // The last event needs a continue as much as any other one. A
+            // subject that reports this event is not gone yet: it waits for
+            // the debugger to release it, and a debugger that returns here
+            // leaves it suspended forever. The wait below then never ends.
+            // Measured on 2026-08-15, where the subject printed every line
+            // and both processes stayed alive.
+            ContinueDebugEvent(event.dwProcessId, event.dwThreadId, DBG_CONTINUE);
             return 0;
         }
         ContinueDebugEvent(event.dwProcessId, event.dwThreadId, DBG_CONTINUE);
@@ -87,7 +94,13 @@ int main(int argc, char **argv) {
     // DEBUG_ONLY_THIS_PROCESS traces the subject and not the children it
     // starts, which is what `DebugActiveProcess` gives the other form. The two
     // forms then differ in when the tracer arrives, and in nothing else.
-    if (!CreateProcessA(NULL, argv[1], NULL, NULL, FALSE,
+    //
+    // The subject inherits the handles of this process, so what it prints
+    // reaches the harness. Without that the subject writes to a handle that
+    // this process never gave it, the control reads an empty output, and the
+    // finding it must show cannot arrive. `inject-windows.c` inherits for the
+    // same reason. Measured on 2026-08-15.
+    if (!CreateProcessA(NULL, argv[1], NULL, NULL, TRUE,
                         DEBUG_ONLY_THIS_PROCESS, NULL, NULL,
                         &startup, &process)) {
         fprintf(stderr, "CreateProcessA failed: %lu\n", GetLastError());

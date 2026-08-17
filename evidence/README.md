@@ -39,16 +39,21 @@ The capability and system names match the coverage matrix exactly, because the t
 | `identity` | `integrity.expected_identity` | Android | Android 37, emulator | an instrumented test reads the certificate of its own archive, and it equals what `PackageManager` reports for the same package | a pinned digest against another certificate, which reports, `High` |
 | `identity` | `integrity.platform_trust` | Linux | Debian 13, kernel 6.12, in the QEMU guest, 2026-08-13 | both arms ran. On an ordinary filesystem the ioctl answers that the image carries no fs-verity, and the tier reports `Unsupported`. On an ext4 filesystem made with `-O verity`, and with verity enabled on the image, the tier reports `Accepted`. | none. This tier accepts or states a gap, and it creates no finding either way. |
 | `identity` | `integrity.expected_identity` | Linux | Debian 13, kernel 6.12, in the QEMU guest, 2026-08-13 | the running image, pinned to the digest of its own content, stays clean | the same image with one byte appended, against the digest of the original, which reports, `High`. An appended byte leaves an ELF image runnable and changes its content, so the control repackages a real artifact. |
+| `identity` | `integrity.platform_trust` | Windows | Windows 11 Pro, build 10.0.26200, ARM64, in the QEMU guest, 2026-08-16 | a copy that `controls/sign-windows.ps1` signs with a certificate that the machine anchors. The tier reports clean. | the same copy, signed with a certificate that nothing anchors, which reports `Medium`, `the Authenticode signature of the running image did not validate`. An unsigned build reports `Medium` and states that it carries no signature, so all three answers of the tier have a control. |
+| `identity` | `integrity.expected_identity` | Windows | Windows 11 Pro, build 10.0.26200, ARM64, in the QEMU guest, 2026-08-16 | the signed copy, pinned to the SHA-256 of the certificate that signed it. The tier reports clean, and the operation is allowed. | the same copy, pinned to another certificate, which reports `High`, `the running image carries another signing certificate`, and the operation denied. The copy that nothing anchors reports the same, and both tiers then report together. |
 | `baseline` | `integrity.runtime_baseline` | macOS | macOS 26 | two JavaScript hot loops, which add no region, and 40 s with no finding | an agent maps 64 KiB after start, caught after 5.6 s to 7.1 s, `Medium` |
 | `baseline` | `integrity.runtime_baseline` | iOS | iOS 26, simulator | 40 s with no finding | an agent maps 64 KiB after start, caught after 5.9 s, `Medium` |
 | `baseline` | `integrity.runtime_baseline` | Linux | Debian, glibc | 40 s with no finding | an `LD_PRELOAD` agent maps 64 KiB after start, caught after 6.1 s to 6.8 s, `Medium` |
 | `baseline` | `integrity.runtime_baseline` | Android | Android 37 | a system application maps 410 regions | an agent maps executable memory after start, caught, `Medium` |
+| `baseline` | `integrity.runtime_baseline` | Windows | Windows 11 Pro, build 10.0.26200, ARM64, in the QEMU guest, 2026-08-15 | 40 s with no addition, and the detector holds that answer for the whole run | `inject-windows.c` maps 64 KiB into the process after `start()` read the baseline, caught after 5.3 s, `Medium`, `executable memory that start did not map: 65536 bytes, region count 1` |
 | `tracer` | `debugging.tracer_present` | macOS | macOS 26 | a run with no debugger | `lldb`, at start and attached later, both report, `Medium`, and the later one is caught after 5.4 s to 5.8 s |
 | `tracer` | `debugging.tracer_present` | iOS | iOS 26, simulator | a run with no debugger | `lldb` attached after start, caught after 5.9 s, `Medium`, and the operation denied |
 | `tracer` | `debugging.tracer_present` | Linux | Debian, glibc | a run with no debugger | `gdb`, and `attach.c` in both of its forms, all report, `Medium`, and the later one is caught after 5.3 s to 5.8 s |
 | `tracer` | `debugging.tracer_present` | Android | Android 37 | a run with no tracer | a `ptrace` tracer on a device, reports, `Medium` |
+| `tracer` | `debugging.tracer_present` | Windows | Windows 11 Pro, build 10.0.26200, ARM64, in the QEMU guest, 2026-08-15 | a run with no debugger reports clean | `attach-windows.c` in both of its forms. It traces the subject from the start, and it attaches to a subject that already runs, which the detector catches after 6.1 s. Both report `Medium`, `the kernel reports a debugger on this process`, and both deny the operation |
 | `injection` | `instrumentation.unaccounted_code` | Linux | Debian, glibc | a plain process holds no anonymous executable region | an `LD_PRELOAD` agent maps 4 KiB, reports, `Medium` |
 | `injection` | `instrumentation.unaccounted_code` | Android | Android 37 | a real runtime names its code caches `[anon_shmem:dalvik-jit-code-cache]` | an agent maps executable memory, reports, `Medium` |
+| `injection` | `instrumentation.unaccounted_code` | Windows | Windows 11 Pro, build 10.0.26200, ARM64, in the QEMU guest, 2026-08-15 | a plain run accounts for every executable region that it holds | `inject-windows.c` maps 64 KiB with no file behind it, before the subject runs its first instruction, reported `Medium`, `unaccounted executable memory: 65536 bytes, region count 1`, and the operation denied |
 | `device` | `device_compromise.system_build` | Android | Android 36 and 37, emulators | a Play Store system image, which reports `release-keys` and `ro.debuggable=0`, and stays clean | a Google APIs system image, which reports `dev-keys` and `ro.debuggable=1`, and reports, `Medium` |
 | `lifecycle` | none | macOS | macOS 26 | a prepared worker thread reports the utility class, and an untouched thread does not | none. The capability reports no finding, so it has no hostile control. |
 | `lifecycle` | none | iOS | iOS 26, simulator | the same two controls, in the simulator | none. The capability reports no finding, so it has no hostile control. |
@@ -426,11 +431,16 @@ under the `fidelity` tag.
 ### Linux, in the guest
 
 ```sh
-evidence/controls/vm.sh linux create      # about 26 s, and it asks nothing
+evidence/controls/vm.sh linux build       # Packer, once, and it asks nothing
 evidence/controls/vm.sh linux start       # about 20 s
-evidence/controls/vm.sh linux provision   # the Rust toolchain
 evidence/controls/vm.sh linux run 'uname -a'
 ```
+
+Packer builds the image from `evidence/vm/linux/`, and that build is the whole
+setup: the install, the account, the toolchain, and the key. `start` boots a
+copy-on-write overlay on top of that image, so a run never dirties it, and
+`reset` throws the overlay away, so a pristine guest costs seconds. A build
+that produces a newer image drops a stale overlay by itself.
 
 A container ran these controls before, and it could not answer two of them. It
 shares the kernel of the machine that hosts it, so it holds no filesystem of
@@ -449,11 +459,21 @@ control text on that machine directly, and only the place changes.
 ### Windows, in the guest
 
 ```sh
-evidence/controls/vm.sh windows create    # after the image is in place
-evidence/controls/vm.sh windows install   # unattended, with a window
+evidence/controls/vm.sh windows iso       # the one step a person takes
+evidence/controls/vm.sh windows build     # Packer, 36 min, and it asks nothing
 evidence/controls/vm.sh windows start
-evidence/controls/vm.sh windows provision
+evidence/controls/vm.sh windows push      # the workspace, to C:\work
 ```
+
+The build installs Windows without a person. Windows 11 25H2 boots a Setup
+that ignores an answer file on its first pages, so `install.cmd` does the
+install that Setup would: it partitions the disk, applies the image with
+`dism`, injects the virtio network driver, and writes the boot files. The
+answer file then drives the account and the first logon only.
+
+`run.sh` needs no argument for the guest. It finds one, pushes the workspace,
+and runs each Windows control there, in the same command text that a Windows
+runner would run on itself.
 
 The image is the one step a person takes, and the reason is Microsoft's. Three
 of the four download steps answer a script: the page names the ARM64 product,
@@ -536,4 +556,4 @@ noticed them. Read them first.
 | A rooted Android system | Nothing that blocks a release, and it would measure the coverage limit. `device_compromise.system_build` reads what the system says about itself, and a root tool rewrites that. A Magisk install would show how much a released-build answer is worth. |
 | An iOS device | The iOS rows above. A simulator process runs on the macOS kernel, so it proves the mechanism and not the device. |
 | A false-positive survey, across profilers, crash reporters, and enterprise agents | Host guidance only, and no longer release evidence. `debugging.tracer_present` carries a user-mode bypass, which the signal model puts at `Medium` on its own, so no survey lifts it. See [detectors and platforms](../docs/plan/04-detectors-and-platforms.md#tracer-state). |
-| Windows | Every Windows row. The platform needs a real machine or a cloud runner. |
+| An anchor that Microsoft signed, on Windows | Nothing that blocks a release, and it bounds what the Windows identity rows prove. `controls/sign-windows.ps1` anchors a certificate that the guest itself made, so the rows prove that the tier reads a signature and compares a signer. They do not prove what the anchor set of a stock Windows accepts. |

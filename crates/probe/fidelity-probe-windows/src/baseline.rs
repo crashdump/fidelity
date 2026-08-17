@@ -51,6 +51,24 @@ mod tests {
         else {
             panic!("Windows must report its regions");
         };
-        assert!(second.added_since(&first).is_empty());
+        // The failure names what arrived. This test failed once in about
+        // fourteen runs on 2026-08-15, and it did not fail again in twenty.
+        // A message that states the address, the size, and the writable flag
+        // tells the next reader what arrived. A library that loads between
+        // the two reads is legitimate, and anything else is not.
+        let added: Vec<String> = second
+            .added_since(&first)
+            .iter()
+            .map(|region| {
+                format!(
+                    "{:#x}..{:#x}, {} bytes, writable {}",
+                    region.start(),
+                    region.end(),
+                    region.bytes(),
+                    region.is_writable()
+                )
+            })
+            .collect();
+        assert!(added.is_empty(), "a second read added {}", added.join("; "));
     }
 }
