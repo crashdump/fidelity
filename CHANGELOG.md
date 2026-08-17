@@ -8,14 +8,17 @@ only when it changes what `fidelity` exposes.
 This file records released versions. The work before the first release lives in the git history and
 in `evidence/README.md`, which states what each platform proved and what it did not.
 
-## 0.1.0 - 2026-08-13
+## 0.1.0 - 2026-08-17
 
 This is the first published release, and it claims no supported platform.
 
-Four platforms run. macOS, iOS, Linux, and Android compare executable memory against a baseline
-that `start()` captures, and all four read tracer state. macOS adds image identity and
-`guarded!()`. Linux and Android add unaccounted code. The iOS evidence comes from the simulator, so
-a device has still to confirm it. Windows returns `StartError::PlatformUnavailable`.
+Five platforms run. macOS, iOS, Windows, Linux, and Android answer image identity, compare
+executable memory against a baseline that `start()` captures, and read tracer state. Windows,
+Linux, and Android add unaccounted code. Android adds device compromise. `guarded!()` binds a
+constant to the code identity on macOS, iOS, and Android.
+
+The iOS evidence comes from the simulator, and the Windows evidence comes from a virtual machine. A
+device and a physical host have still to confirm those two. Every run used ARM64.
 
 A supported label needs the full release evidence that `docs/plan/05-verification.md` defines, and
 no platform holds it yet. Treat this release as an early version. Expect the public surface to

@@ -6,10 +6,11 @@
 //!
 //! # Status
 //!
-//! This release compares executable memory against a baseline on macOS, Linux,
-//! and Android, and it reads tracer state on all three. macOS adds image
-//! identity, and Linux and Android add unaccounted code. Windows returns
-//! [`StartError::PlatformUnavailable`],
+//! Five platforms run. macOS, iOS, Windows, Linux, and Android answer image
+//! identity, compare executable memory against a baseline that `start()`
+//! captured, and read tracer state. Windows, Linux, and Android add
+//! unaccounted code, and Android adds device compromise. A target that ships
+//! no probe crate returns [`StartError::PlatformUnavailable`],
 //! because a backend that reports a clean environment while it examines
 //! nothing is worse than a visible failure. A platform counts as supported
 //! only after its full release evidence exists, and none does yet.

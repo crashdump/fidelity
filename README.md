@@ -3,12 +3,12 @@
 `fidelity` is an open-source Rust library. It detects hostile changes to an application's runtime
 environment, and it applies a response that the host selects.
 
-> **Status:** four platforms run, each with real clean and hostile evidence. All four compare
-> executable memory against a baseline that `start()` captured, and all four read tracer state.
-> macOS adds image identity and `guarded!()`, and Linux and Android add unaccounted code. The iOS
-> evidence comes from the simulator, so a device has still to confirm it. Windows returns
-> `StartError::PlatformUnavailable`, because a stub that reports a clean environment is worse than
-> a visible failure. No platform is called supported until its full release evidence exists.
+> **Status:** five platforms run, each with real clean and hostile evidence. All five answer image
+> identity, compare executable memory against a baseline that `start()` captured, and read tracer
+> state. Windows, Linux, and Android add unaccounted code, and Android adds device compromise. The
+> iOS evidence comes from the simulator, and the Windows evidence comes from a virtual machine. A
+> device and a physical host have still to confirm those two. Every run used ARM64. No platform
+> counts as supported until its full release evidence exists.
 
 | Fidelity is | Fidelity is not |
 |---|---|
