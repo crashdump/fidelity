@@ -210,6 +210,62 @@ fn no_crate_takes_a_remote_network_dependency() {
 }
 
 #[test]
+fn an_external_crate_arrives_only_through_a_feature_that_is_off() {
+    // `06-delivery.md` states that a default build of the workspace resolves to
+    // no external crate, and that property is what lets a security library be
+    // read end to end. Two optional dependencies now exist, `serde` and
+    // `tracing`, so the property holds only while every external crate stays
+    // optional. One that arrives without `optional = true` breaks it silently,
+    // because a build still succeeds.
+    //
+    // The rule reads the root manifest alone. Every crate states a shared
+    // dependency there, and `declared_dependencies` above says why.
+    let manifest = fs::read_to_string(root().join("Cargo.toml"))
+        .unwrap_or_else(|error| panic!("the workspace manifest must exist: {error}"));
+    let internal: BTreeSet<String> = crates().into_keys().collect();
+    let external: BTreeSet<String> = declared_dependencies(&manifest)
+        .into_iter()
+        .filter(|name| !internal.contains(name))
+        .collect();
+    assert!(
+        !external.is_empty(),
+        "the rule must check an external crate"
+    );
+
+    // Every crate that takes one must mark it optional, and not merely one of
+    // them. A rule that accepted one `optional = true` anywhere would pass
+    // while another crate took the same dependency outright.
+    let mut checked = 0_usize;
+    for (name, crate_manifest) in crates() {
+        let mut inside = false;
+        for line in crate_manifest.lines() {
+            let line = line.trim();
+            if line.starts_with('[') {
+                inside = line.ends_with("dependencies]");
+                continue;
+            }
+            if !inside || line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let Some((key, _)) = line.split_once('=') else {
+                continue;
+            };
+            let declared = key.trim().split('.').next().unwrap_or_default();
+            if !external.contains(declared) {
+                continue;
+            }
+            assert!(
+                line.contains("optional = true"),
+                "{name} takes the external crate {declared} without optional = true, \
+                 so a default build stopped resolving to no external crate"
+            );
+            checked += 1;
+        }
+    }
+    assert!(checked > 0, "the rule must check a declaration");
+}
+
+#[test]
 fn a_platform_is_selected_by_its_target_and_never_by_a_feature() {
     // `06-delivery.md` states the rule. A feature is additive and global, so
     // one that a host forgets would silently drop protection.

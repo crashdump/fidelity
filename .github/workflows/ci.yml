@@ -1,17 +1,22 @@
-# The gate runs `evidence/run.sh`, and it states no command of its own.
+# The gate runs `tests/platform/run.sh`, and it states no command of its own.
 #
 # `docs/plan/06-delivery.md` holds the command list, and the harness runs it. A
 # second copy here would drift from that one, and the copy that drifts is the
 # one that decides whether a change lands.
 #
-# The script runs on three runners, because each one reaches controls that the
-# others cannot. The macOS runner reaches the macOS controls. The Linux runner
-# runs Linux, so it reaches the eleven Linux controls natively. A developer on
-# a Mac reaches those same controls through the guest that
-# `evidence/controls/vm.sh` manages, and the harness runs one command text
-# either way. The Windows runner reaches the nine Windows controls, and a
-# developer reaches those through the Windows guest that the same script
-# manages.
+# The script runs on six runners, because each one reaches controls that the
+# others cannot. A runner runs its own platform natively, so the Linux runner
+# reaches the Linux controls and the Windows runner reaches the Windows ones.
+# A developer on a Mac reaches those same controls through the guests that
+# `tests/platform/controls/vm.sh` manages, and the harness runs one command text
+# either way.
+#
+# Linux and Windows run on both architectures here. Every detector result that
+# a developer machine produces comes from ARM64, so these runners are where
+# x86_64 answers for those two. `tests/platform/README.md` records what they found.
+#
+# macOS runs on ARM64 alone. No Intel Mac is in scope, so the gate takes no
+# x86_64 macOS runner even though one exists until August 2027.
 #
 # No runner reaches a device or a simulator, so the harness records a `skipped`
 # row for each of those with the reason. That is the point: a green run here is
@@ -32,7 +37,12 @@ jobs:
       # One runner must not hide the answer that the other one gives.
       fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
+        os:
+          - macos-latest      # ARM64
+          - ubuntu-latest     # x86_64
+          - ubuntu-24.04-arm  # ARM64
+          - windows-latest    # x86_64
+          - windows-11-arm    # ARM64
     runs-on: ${{ matrix.os }}
     # The harness is one POSIX shell script, and the Windows runner defaults to
     # PowerShell. One shell for every runner keeps the gate a single script.
@@ -51,15 +61,29 @@ jobs:
           rustup toolchain install "$msrv" --profile minimal
           # The sanitizers build the standard library from source.
           rustup toolchain install nightly --profile minimal --component rust-src
-          # The list holds every target that the harness checks. A target that
-          # is the host on one runner is a cross-target on the other, and
-          # `rustup target add` on the host target succeeds and does nothing.
-          for target in aarch64-apple-darwin aarch64-apple-ios \
-                        aarch64-linux-android aarch64-unknown-linux-gnu \
-                        aarch64-pc-windows-msvc x86_64-pc-windows-msvc; do
+          # The harness states the target list, so this file holds no copy of
+          # it. A target that is the host on one runner is a cross-target on
+          # the other, and `rustup target add` on the host target succeeds and
+          # does nothing. Both toolchains need the list, because `rustup target
+          # add` works on one toolchain at a time.
+          for target in $(tests/platform/run.sh --targets); do
               rustup target add "$target"
               rustup target add --toolchain "$msrv" "$target"
           done
 
       - name: Run the gate
-        run: evidence/run.sh
+        run: tests/platform/run.sh
+
+      # The record is what the run proves, and a run that only prints it leaves
+      # nothing to read afterwards. Every Linux detector control passed on an
+      # x86_64 runner from 2026-08-13, and no artifact kept a single row, so
+      # `tests/platform/README.md` still asked for an x86_64 machine that CI had
+      # already answered for. `always()` keeps the record of a failing run too,
+      # because that is the run whose rows matter most.
+      - name: Keep the record
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: record-${{ matrix.os }}
+          path: tests/platform/record.tsv
+          if-no-files-found: error

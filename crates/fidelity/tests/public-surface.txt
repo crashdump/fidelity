@@ -1,0 +1,175 @@
+fidelity  pub enum DenialReason
+fidelity  pub enum StartError
+fidelity  pub fn __guarded<const N: usize, const BOUND: bool>(handle: &Handle, salt: &[u8; 16], value: &[u8; N]) -> Secret<N>
+fidelity  pub fn new() -> Builder
+fidelity  pub struct Builder
+fidelity  pub struct Denied
+fidelity  pub struct Handle
+fidelity  pub struct Secret<const N: usize>
+fidelity  pub use builder::Builder
+fidelity  pub use error::{DenialReason, Denied, StartError}
+fidelity  pub use fidelity_macros::guarded
+fidelity  pub use fidelity_types::{ Action, AuthenticodeThumbprint, BoundedText, Category, CategorySet, CertificateSha256, Choice, CodeRequirement, ContentDigest, Detector, DetectorState, Evidence, ExpectedIdentity, Finding, IdentityError, MAX_EVIDENCE_BYTES, Outcome, Platform, SignalStrength, Snapshot, TeamIdentifier, }
+fidelity  pub use handle::Handle
+fidelity  pub use secret::Secret
+fidelity  pub use secret::__guarded
+fidelity-types  pub const MAX_EVIDENCE_BYTES: usize = 4096
+fidelity-types  pub enum Action
+fidelity-types  pub enum Category
+fidelity-types  pub enum Choice<T>
+fidelity-types  pub enum Evidence
+fidelity-types  pub enum IdentityError
+fidelity-types  pub enum Outcome
+fidelity-types  pub enum Platform
+fidelity-types  pub enum SignalStrength
+fidelity-types  pub struct AuthenticodeThumbprint([u8; 32])
+fidelity-types  pub struct BoundedText
+fidelity-types  pub struct CategorySet(u32)
+fidelity-types  pub struct CategorySetIter
+fidelity-types  pub struct CertificateSha256([u8; 32])
+fidelity-types  pub struct CodeRequirement(String)
+fidelity-types  pub struct ContentDigest(Vec<u8>)
+fidelity-types  pub struct Detector
+fidelity-types  pub struct DetectorState
+fidelity-types  pub struct ExpectedIdentity
+fidelity-types  pub struct Finding
+fidelity-types  pub struct Snapshot
+fidelity-types  pub struct TeamIdentifier(String)
+fidelity-types  pub use action::Action
+fidelity-types  pub use category::{Category, CategorySet, CategorySetIter}
+fidelity-types  pub use detector::Detector
+fidelity-types  pub use evidence::{BoundedText, Evidence, MAX_EVIDENCE_BYTES}
+fidelity-types  pub use finding::Finding
+fidelity-types  pub use identity::{ AuthenticodeThumbprint, CertificateSha256, Choice, CodeRequirement, ContentDigest, ExpectedIdentity, IdentityError, Platform, TeamIdentifier, }
+fidelity-types  pub use outcome::Outcome
+fidelity-types  pub use snapshot::{DetectorState, Snapshot}
+fidelity-types  pub use strength::SignalStrength
+fidelity-types::Action  variant Callback
+fidelity-types::Action  variant Crash
+fidelity-types::Action  variant Deny
+fidelity-types::Action  variant Report
+fidelity-types::AuthenticodeThumbprint  pub const fn as_bytes(&self) -> &[u8; 32]
+fidelity-types::AuthenticodeThumbprint  pub const fn from_bytes(bytes: [u8; 32]) -> Self
+fidelity-types::AuthenticodeThumbprint  pub fn from_hex(hex: &str) -> Result<Self, IdentityError>
+fidelity-types::BoundedText  pub const fn is_truncated(&self) -> bool
+fidelity-types::BoundedText  pub fn new(text: impl Into<String>) -> Self
+fidelity-types::BoundedText  pub fn text(&self) -> &str
+fidelity-types::Category  pub const ALL: [Self; 6] = [ Self::Integrity, Self::Debugging, Self::Instrumentation, Self::DeviceCompromise, Self::Virtualization, Self::UiAbuse, ]
+fidelity-types::Category  pub const COUNT: usize = Self::ALL.len()
+fidelity-types::Category  pub const fn index(self) -> usize
+fidelity-types::Category  variant Debugging
+fidelity-types::Category  variant DeviceCompromise
+fidelity-types::Category  variant Instrumentation
+fidelity-types::Category  variant Integrity
+fidelity-types::Category  variant UiAbuse
+fidelity-types::Category  variant Virtualization
+fidelity-types::CategorySet  pub const fn bits(self) -> u32
+fidelity-types::CategorySet  pub const fn contains(self, category: Category) -> bool
+fidelity-types::CategorySet  pub const fn from_bits(bits: u32) -> Self
+fidelity-types::CategorySet  pub const fn is_empty(self) -> bool
+fidelity-types::CategorySet  pub const fn len(self) -> usize
+fidelity-types::CategorySet  pub const fn new() -> Self
+fidelity-types::CategorySet  pub fn insert(&mut self, category: Category) -> bool
+fidelity-types::CategorySet  pub fn iter(self) -> CategorySetIter
+fidelity-types::CertificateSha256  pub const fn as_bytes(&self) -> &[u8; 32]
+fidelity-types::CertificateSha256  pub const fn from_bytes(bytes: [u8; 32]) -> Self
+fidelity-types::CertificateSha256  pub fn from_hex(hex: &str) -> Result<Self, IdentityError>
+fidelity-types::Choice  variant AcceptUnsupported
+fidelity-types::Choice  variant Value
+fidelity-types::CodeRequirement  pub fn as_str(&self) -> &str
+fidelity-types::CodeRequirement  pub fn new(requirement: impl Into<String>) -> Result<Self, IdentityError>
+fidelity-types::ContentDigest  pub fn as_bytes(&self) -> &[u8]
+fidelity-types::ContentDigest  pub fn new(digest: impl Into<Vec<u8>>) -> Result<Self, IdentityError>
+fidelity-types::Detector  pub const fn category(self) -> Category
+fidelity-types::Detector  pub const fn name(self) -> &'static str
+fidelity-types::Detector  pub const fn new(id: u16, name: &'static str, category: Category) -> Self
+fidelity-types::DetectorState  pub const fn detector(&self) -> Detector
+fidelity-types::DetectorState  pub const fn first(&self) -> Option<u64>
+fidelity-types::DetectorState  pub const fn latest(&self) -> Option<u64>
+fidelity-types::DetectorState  pub const fn new(detector: Detector, outcome: Outcome, strongest: Option<Finding>, first_unix_ms: Option<u64>, latest_unix_ms: Option<u64>, occurrences: u32) -> Self
+fidelity-types::DetectorState  pub const fn occurrences(&self) -> u32
+fidelity-types::DetectorState  pub const fn outcome(&self) -> &Outcome
+fidelity-types::DetectorState  pub const fn strongest(&self) -> Option<&Finding>
+fidelity-types::Evidence  pub const fn is_detector_health(&self) -> bool
+fidelity-types::Evidence  variant CodeAddedAfterStart
+fidelity-types::Evidence  variant CodeMadeWritable
+fidelity-types::Evidence  variant DetectorHealth
+fidelity-types::Evidence  variant DevelopmentBuild
+fidelity-types::Evidence  variant ImageUntrusted
+fidelity-types::Evidence  variant TracerPresent
+fidelity-types::Evidence  variant UnaccountedCode
+fidelity-types::Evidence  variant UnexpectedIdentity
+fidelity-types::Evidence  variant VirtualMachineHost
+fidelity-types::ExpectedIdentity  pub const fn android_choice(&self) -> Option<&Choice<CertificateSha256>>
+fidelity-types::ExpectedIdentity  pub const fn ios_choice(&self) -> Option<&Choice<TeamIdentifier>>
+fidelity-types::ExpectedIdentity  pub const fn linux_choice(&self) -> Option<&Choice<ContentDigest>>
+fidelity-types::ExpectedIdentity  pub const fn macos_choice(&self) -> Option<&Choice<CodeRequirement>>
+fidelity-types::ExpectedIdentity  pub const fn new() -> Self
+fidelity-types::ExpectedIdentity  pub const fn states_choice_for(&self, platform: Platform) -> bool
+fidelity-types::ExpectedIdentity  pub const fn windows_choice(&self) -> Option<&Choice<AuthenticodeThumbprint>>
+fidelity-types::ExpectedIdentity  pub fn android(mut self, choice: Choice<CertificateSha256>) -> Self
+fidelity-types::ExpectedIdentity  pub fn ios(mut self, choice: Choice<TeamIdentifier>) -> Self
+fidelity-types::ExpectedIdentity  pub fn linux(mut self, choice: Choice<ContentDigest>) -> Self
+fidelity-types::ExpectedIdentity  pub fn macos(mut self, choice: Choice<CodeRequirement>) -> Self
+fidelity-types::ExpectedIdentity  pub fn windows(mut self, choice: Choice<AuthenticodeThumbprint>) -> Self
+fidelity-types::Finding  pub const fn category(&self) -> Category
+fidelity-types::Finding  pub const fn detector(&self) -> Detector
+fidelity-types::Finding  pub const fn evidence(&self) -> &Evidence
+fidelity-types::Finding  pub const fn in_category(detector: Detector, category: Category, strength: SignalStrength, evidence: Evidence, observed_at_unix_ms: u64) -> Self
+fidelity-types::Finding  pub const fn observed_at_unix_ms(&self) -> u64
+fidelity-types::Finding  pub const fn strength(&self) -> SignalStrength
+fidelity-types::Finding  pub fn new(detector: Detector, strength: SignalStrength, evidence: Evidence, observed_at_unix_ms: u64) -> Self
+fidelity-types::IdentityError  variant BadHexLength
+fidelity-types::IdentityError  variant Empty
+fidelity-types::IdentityError  variant NotHex
+fidelity-types::Outcome  pub const fn finding(&self) -> Option<&Finding>
+fidelity-types::Outcome  pub const fn ran(&self) -> bool
+fidelity-types::Outcome  variant Clean
+fidelity-types::Outcome  variant Finding
+fidelity-types::Outcome  variant NotRun
+fidelity-types::Outcome  variant Unsupported
+fidelity-types::Platform  pub const fn target() -> Option<Self>
+fidelity-types::Platform  variant Android
+fidelity-types::Platform  variant Ios
+fidelity-types::Platform  variant Linux
+fidelity-types::Platform  variant MacOs
+fidelity-types::Platform  variant Windows
+fidelity-types::SignalStrength  pub const ALL: [Self; 3] = [Self::Low, Self::Medium, Self::High]
+fidelity-types::SignalStrength  pub fn reaches(self, threshold: Self) -> bool
+fidelity-types::SignalStrength  variant High
+fidelity-types::SignalStrength  variant Low
+fidelity-types::SignalStrength  variant Medium
+fidelity-types::Snapshot  pub const fn host_latched_categories(&self) -> CategorySet
+fidelity-types::Snapshot  pub const fn latched_categories(&self) -> CategorySet
+fidelity-types::Snapshot  pub const fn new(latched: CategorySet, host_latched: CategorySet, detectors: Vec<DetectorState>) -> Self
+fidelity-types::Snapshot  pub fn detector_state(&self, detector: Detector) -> Option<&DetectorState>
+fidelity-types::Snapshot  pub fn detectors(&self) -> &[DetectorState]
+fidelity-types::TeamIdentifier  pub fn as_str(&self) -> &str
+fidelity-types::TeamIdentifier  pub fn new(identifier: impl Into<String>) -> Result<Self, IdentityError>
+fidelity::Builder  pub fn debugging(mut self, action: Action, threshold: SignalStrength) -> Self
+fidelity::Builder  pub fn deny_until_first_full_scan(mut self) -> Self
+fidelity::Builder  pub fn device_compromise(mut self, action: Action, threshold: SignalStrength) -> Self
+fidelity::Builder  pub fn expected_identity(mut self, identity: ExpectedIdentity) -> Self
+fidelity::Builder  pub fn instrumentation(mut self, action: Action, threshold: SignalStrength) -> Self
+fidelity::Builder  pub fn integrity(mut self, action: Action, threshold: SignalStrength) -> Self
+fidelity::Builder  pub fn on_finding<F>(mut self, callback: F) -> Self
+fidelity::Builder  pub fn start(self) -> Result<Handle, StartError>
+fidelity::Builder  pub fn ui_abuse(mut self, action: Action, threshold: SignalStrength) -> Self
+fidelity::Builder  pub fn virtualization(mut self, action: Action, threshold: SignalStrength) -> Self
+fidelity::DenialReason  variant IncompleteCoverage
+fidelity::DenialReason  variant Latched
+fidelity::Denied  pub const fn categories(&self) -> CategorySet
+fidelity::Denied  pub const fn reason(&self) -> DenialReason
+fidelity::Handle  pub fn code_identity(&self) -> &[u8]
+fidelity::Handle  pub fn deny(&self, category: Category)
+fidelity::Handle  pub fn ensure_allowed(&self) -> Result<(), Denied>
+fidelity::Handle  pub fn first_full_scan_complete(&self) -> bool
+fidelity::Handle  pub fn snapshot(&self) -> Snapshot
+fidelity::Secret  pub fn as_str(&self) -> &str
+fidelity::StartError  variant AlreadyRunning
+fidelity::StartError  variant IdentityBindingUnavailable
+fidelity::StartError  variant MissingCallback
+fidelity::StartError  variant MissingExpectedIdentity
+fidelity::StartError  variant PlatformUnavailable
+fidelity::StartError  variant UnsupportedTarget
+fidelity::StartError  variant WorkerUnavailable
