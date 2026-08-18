@@ -18,7 +18,9 @@ mod identity;
 mod lifecycle;
 mod tracer;
 
-use fidelity_core::{Baseline, Device, Environment, Identity, Injection, Lifecycle, Tracer};
+use fidelity_core::{
+    Baseline, Device, Emulation, Environment, Identity, Injection, Lifecycle, Tracer,
+};
 use fidelity_types::Platform;
 
 /// The iOS view of the running process.
@@ -69,6 +71,13 @@ impl Injection for IosEnvironment {}
 // so the mechanism is reachable. It waits for a control that produces a
 // jailbroken system, because no measurement means no detector.
 impl Device for IosEnvironment {}
+
+// iOS can answer `emulation`, and no code exists yet. Apple ships no way to
+// run iOS in a virtual machine, and a commercial service does exactly that and
+// sells it to anybody who studies an application, so the question applies. The
+// macOS reader stays macOS only until a measurement states what an iOS kernel
+// reports. It waits for a control, because no measurement means no detector.
+impl Emulation for IosEnvironment {}
 
 #[cfg(test)]
 mod tests {

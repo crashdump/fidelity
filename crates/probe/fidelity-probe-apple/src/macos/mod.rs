@@ -5,11 +5,14 @@
 //! which states the gap without a method body to read.
 
 mod baseline;
+mod emulation;
 mod identity;
 mod lifecycle;
 mod tracer;
 
-use fidelity_core::{Baseline, Device, Environment, Identity, Injection, Lifecycle, Tracer};
+use fidelity_core::{
+    Baseline, Device, Emulation, Environment, Identity, Injection, Lifecycle, Tracer,
+};
 use fidelity_types::Platform;
 
 /// The macOS view of the running process.
@@ -40,12 +43,12 @@ impl Environment for MacEnvironment {
     }
 }
 
-// `Identity` and `Tracer` carry real platform code, so each one lives in the
-// file of its own name. Every capability that macOS gains later follows that
+// `Identity`, `Tracer`, and `Emulation` carry real platform code, so each one
+// lives in the file of its own name. Every capability that macOS gains later follows that
 // shape. Until it does, an empty `impl` here states the gap, and the trait
 // default reports `Unsupported`.
 const _: fn() = || {
-    fn implements<T: Baseline + Identity + Lifecycle + Tracer>() {}
+    fn implements<T: Baseline + Emulation + Identity + Lifecycle + Tracer>() {}
     implements::<MacEnvironment>();
 };
 

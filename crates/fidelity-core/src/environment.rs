@@ -1,6 +1,6 @@
 use fidelity_types::Platform;
 
-use crate::capability::{Baseline, Device, Identity, Injection, Lifecycle, Tracer};
+use crate::capability::{Baseline, Device, Emulation, Identity, Injection, Lifecycle, Tracer};
 
 /// Everything that one platform reports.
 ///
@@ -11,7 +11,7 @@ use crate::capability::{Baseline, Device, Identity, Injection, Lifecycle, Tracer
 /// A probe implements the capabilities that its platform offers, and writes an
 /// empty `impl` for the rest. The empty `impl` states the gap.
 pub trait Environment:
-    Baseline + Device + Identity + Injection + Lifecycle + Tracer + Send + Sync + 'static
+    Baseline + Device + Emulation + Identity + Injection + Lifecycle + Tracer + Send + Sync + 'static
 {
     /// The platform that this environment describes.
     fn platform(&self) -> Platform;
@@ -23,7 +23,7 @@ mod tests {
 
     use super::Environment;
     use crate::Observation;
-    use crate::capability::{Baseline, Device, Identity, Injection, Lifecycle, Tracer};
+    use crate::capability::{Baseline, Device, Emulation, Identity, Injection, Lifecycle, Tracer};
 
     /// A probe that offers no capability, so every default answers.
     #[derive(Debug)]
@@ -38,6 +38,8 @@ mod tests {
     impl Baseline for Bare {}
 
     impl Device for Bare {}
+
+    impl Emulation for Bare {}
 
     impl Lifecycle for Bare {}
 

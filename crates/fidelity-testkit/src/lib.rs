@@ -13,8 +13,9 @@
 use std::sync::{Mutex, PoisonError};
 
 use fidelity_core::{
-    Baseline, CodeIdentity, CodeOrigin, CodeRegions, Device, Environment, Identity, IdentityMatch,
-    Injection, Lifecycle, Observation, SystemBuild, Tracer, TracerState,
+    Baseline, CodeIdentity, CodeOrigin, CodeRegions, Device, Emulation, Environment, Identity,
+    IdentityMatch, Injection, Lifecycle, MachineHost, Observation, SystemBuild, Tracer,
+    TracerState,
 };
 use fidelity_types::{ExpectedIdentity, Platform};
 
@@ -34,6 +35,7 @@ pub struct FakeEnvironment {
     code_origin: Observation<CodeOrigin>,
     code_regions: Observation<CodeRegions>,
     system_build: Observation<SystemBuild>,
+    machine_host: Observation<MachineHost>,
 }
 
 /// The answers that one capability gives, in the order a test states them.
@@ -88,6 +90,7 @@ impl FakeEnvironment {
             code_origin: Observation::Unsupported { reason: NOT_STATED },
             code_regions: Observation::Unsupported { reason: NOT_STATED },
             system_build: Observation::Unsupported { reason: NOT_STATED },
+            machine_host: Observation::Unsupported { reason: NOT_STATED },
         }
     }
 
@@ -134,6 +137,13 @@ impl FakeEnvironment {
     #[must_use]
     pub fn with_system_build(mut self, observation: Observation<SystemBuild>) -> Self {
         self.system_build = observation;
+        self
+    }
+
+    /// States what the system reports about the machine that runs it.
+    #[must_use]
+    pub fn with_machine_host(mut self, observation: Observation<MachineHost>) -> Self {
+        self.machine_host = observation;
         self
     }
 
@@ -187,6 +197,12 @@ impl Identity for FakeEnvironment {
 impl Device for FakeEnvironment {
     fn system_build(&self) -> Observation<SystemBuild> {
         self.system_build.clone()
+    }
+}
+
+impl Emulation for FakeEnvironment {
+    fn machine_host(&self) -> Observation<MachineHost> {
+        self.machine_host.clone()
     }
 }
 

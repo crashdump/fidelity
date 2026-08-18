@@ -69,7 +69,7 @@ impl BoundedText {
 ///
 /// The enumeration is `#[non_exhaustive]`, because it grows as detectors
 /// arrive. Every variant beyond detector health waits for a real backend and
-/// its clean and hostile evidence.
+/// its clean and hostile controls.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
@@ -145,6 +145,16 @@ pub enum Evidence {
     /// build states more than one and a host acts on which one it was.
     DevelopmentBuild {
         /// What the system stated, in text that names no tool and no path.
+        detail: BoundedText,
+    },
+
+    /// The system states that a virtual machine monitor runs it.
+    ///
+    /// The evidence names the interface that reported it, because a platform
+    /// may hold more than one and they can disagree. A kernel answers here,
+    /// and a processor flag never does.
+    VirtualMachineHost {
+        /// What the system stated, in text that names no product.
         detail: BoundedText,
     },
 }

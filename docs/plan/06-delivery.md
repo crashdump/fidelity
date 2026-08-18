@@ -59,7 +59,7 @@ crates/
     fidelity-probe-windows/    Windows
 bindings/
   tauri-plugin-fidelity/     Rust-backend-only Tauri lifecycle adapter
-evidence/                    generated release records, which nobody compresses
+tests/platform/                    generated release records, which nobody compresses
 ```
 
 `fidelity` is the supported entry point. Probe crates expose facts, not policy. Detector composition
@@ -140,7 +140,7 @@ The marker states what the code does today, and a test enforces every cell. See
 | `tracer` | `Debugging` | yes | yes | yes | yes | yes |
 | `injection` | `Instrumentation` | no | no | yes | yes | yes |
 | `device` | `DeviceCompromise` | no | plan | no | no | yes |
-| `emulation` | `Virtualization` | plan | plan | plan | plan | plan |
+| `emulation` | `Virtualization` | yes | plan | plan | plan | plan |
 | `interface` | `UiAbuse` | no | plan | no | no | plan |
 | `lifecycle` | none | yes | yes | no | no | yes |
 
@@ -160,7 +160,7 @@ carries the category `none`, because it answers no question and reports no findi
 3. Prove the two axes with more capabilities and more operating systems. Done: four capabilities
    run across macOS, iOS, Linux, and Android. Two share one pure reader, and two more share one
    `common/` body inside the Apple crate.
-4. Add a platform mechanism only with clean and hostile evidence, and explicit capability semantics.
+4. Add a platform mechanism only with clean and hostile controls, and explicit capability semantics.
 5. Complete all five target backends and the release matrix.
 6. Stabilize the finding and snapshot schema, and publish the first supported Rust release.
 
@@ -172,10 +172,14 @@ They must not shape the v1 public API early.
 - Rust with `std` is required. Fidelity does not support pure `no_std`.
 - `Cargo.toml` pins the MSRV to one concrete Rust version, at or below the current stable release
   minus two. A new Rust release never raises it. CI builds the pinned MSRV and current stable. An
-  MSRV increase is a minor version bump and appears in the changelog. `evidence/run.sh` builds the
+  MSRV increase is a minor version bump and appears in the changelog. `tests/platform/run.sh` builds
+  the
   pinned version on every target, because a pin that nothing builds is a claim rather than a fact.
 - The public surface of the `fidelity` crate follows SemVer. Every other crate is an internal
   implementation detail and carries no compatibility promise.
+- Every crate publishes in one release, at one version. A feature of the facade that forwards to an
+  internal crate cannot resolve against an older published copy of that crate, so `cargo package`
+  fails until the version rises. Measured on 2026-08-18, when the `tracing` feature landed.
 - `Category`, `Evidence`, `Platform`, `IdentityError`, `StartError`, and `DenialReason` are
   `#[non_exhaustive]`, because all six grow after v1. `Action`, `SignalStrength`, and `Outcome` stay
   exhaustive, so the common host match needs no wildcard arm.
@@ -192,8 +196,10 @@ They must not shape the v1 public API early.
   attachment would keep the machine alive and stop the application from ending.
 - Dependencies are minimal, pinned, audited, and selected per target where possible. A default build
   of the workspace resolves to no external crate, and a security library keeps that property while
-  it can. The optional `serde` feature is the one exception, and it is off by default, so a host
-  that never asks for it never gets it.
+  it can. Two optional features are the exceptions, `serde` and `tracing`, and both are off by
+  default, so a host that never asks for one never gets it. Every external crate must carry
+  `optional = true` in every manifest that takes it, and a test in `architecture.rs` holds that,
+  because a dependency that arrives without the marker still builds.
 - The engine does not require Tokio. The Tauri adapter may bridge findings to an application
   runtime without exposing them to the webview.
 - v1 exposes no C ABI and no other FFI entry point. Language bindings come after the Rust contract
@@ -223,19 +229,21 @@ CI runs each of these, and a change is complete only when all of them pass:
 | `cargo fmt --check` | format |
 | `cargo doc --workspace --no-deps` | rustdoc, with no warning |
 | `cargo check --workspace --target <each of the five>` | every probe crate, from one machine |
-| `evidence/controls/run-sanitizers.sh` | the address and thread sanitizers over the workspace |
+| `tests/platform/controls/run-sanitizers.sh` | the address and thread sanitizers over the workspace |
 
 The last row replaces what a per-platform feature would give. A probe crate compiles only for its
 own target, so a cross-check is the only way to know that the Android code still builds after a
 change to a capability trait. It needs no device, no emulator, and no NDK.
 
-`evidence/run.sh` runs every row above, and CI runs that one script and states no command of its
+`tests/platform/run.sh` runs every row above, and CI runs that one script and states no command of
+its
 own. A second list in a workflow file would drift from this one, and the copy that drifts is the
 copy that decides whether a change lands. CI runs the script on a macOS runner, a Linux runner, and
 a Windows runner, because each one reaches controls that the others cannot.
 
 A machine reaches a platform in one of two ways, and the harness runs one command text either way.
-It runs the platform, or it manages a guest that does. `evidence/controls/vm.sh` manages a Linux
+It runs the platform, or it manages a guest that does. `tests/platform/controls/vm.sh` manages a
+Linux
 guest and a Windows guest with QEMU, so a developer on a Mac reaches the Linux and the Windows
 controls without a second machine. A guest is a virtual machine, and every capability that these
 guests exercise reads memory, a debug port, a mapping table, or a signature, so a hypervisor

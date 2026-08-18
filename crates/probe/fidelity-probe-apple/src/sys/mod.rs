@@ -15,9 +15,14 @@ pub(crate) mod regions;
 #[cfg(target_os = "macos")]
 pub(crate) mod security;
 
+// Apple virtualizes macOS and does not virtualize iOS, so only macOS asks
+// whether a monitor runs it. The name below is macOS only for that reason.
+#[cfg(target_os = "macos")]
+pub(crate) mod vmm;
+
 // The image walk answers on both systems, and only iOS needs it: macOS reads
 // its identity through `SecCode`, which reports the same team. The walk stays
-// iOS only rather than sit unused on macOS, and `evidence/controls/entitle.c`
+// iOS only rather than sit unused on macOS, and `tests/platform/controls/entitle.c`
 // is where the same mechanism runs on macOS.
 #[cfg(target_os = "ios")]
 pub(crate) mod image;

@@ -12,8 +12,8 @@
 //!
 //! One module per category, named as `fidelity_types::Category` names it, and
 //! one file per detector inside it. `integrity`, `debugging`,
-//! `instrumentation`, and `device_compromise` carry a detector so far. The
-//! other two arrive with their platform evidence: `virtualization` and
+//! `instrumentation`, `device_compromise`, and `virtualization` carry a
+//! detector so far. The last one arrives with its platform tests:
 //! `ui_abuse`.
 //!
 //! A detector takes the narrow capability that it reads, not the whole
@@ -33,11 +33,13 @@ mod debugging;
 mod device_compromise;
 mod instrumentation;
 mod integrity;
+mod virtualization;
 
 pub use debugging::TRACER_PRESENT;
 pub use device_compromise::SYSTEM_BUILD;
 pub use instrumentation::UNACCOUNTED_CODE;
 pub use integrity::{EXPECTED_IDENTITY, PLATFORM_TRUST, RUNTIME_BASELINE};
+pub use virtualization::MACHINE_HOST;
 
 /// Every detector that this build composes.
 ///
@@ -50,6 +52,7 @@ pub const INVENTORY: &[Detector] = &[
     UNACCOUNTED_CODE,
     RUNTIME_BASELINE,
     SYSTEM_BUILD,
+    MACHINE_HOST,
 ];
 
 /// The built-in detectors, with the configuration they need.
@@ -101,6 +104,9 @@ impl Detectors {
             }),
             guarded(SYSTEM_BUILD, now_unix_ms, || {
                 device_compromise::system_build(environment, now_unix_ms)
+            }),
+            guarded(MACHINE_HOST, now_unix_ms, || {
+                virtualization::machine_host(environment, now_unix_ms)
             }),
         ]
     }
@@ -162,8 +168,8 @@ fn guarded(
 #[cfg(test)]
 mod tests {
     use fidelity_core::{
-        CodeIdentity, CodeOrigin, CodeRegions, IdentityMatch, Observation, PlatformTrust, Region,
-        Signer, TracerState,
+        CodeIdentity, CodeOrigin, CodeRegions, IdentityMatch, MachineHost, Observation,
+        PlatformTrust, Region, Signer, TracerState,
     };
     use fidelity_testkit::FakeEnvironment;
     use fidelity_types::{
@@ -172,8 +178,8 @@ mod tests {
     };
 
     use super::{
-        Detectors, EXPECTED_IDENTITY, INVENTORY, PLATFORM_TRUST, RUNTIME_BASELINE, TRACER_PRESENT,
-        UNACCOUNTED_CODE,
+        Detectors, EXPECTED_IDENTITY, INVENTORY, MACHINE_HOST, PLATFORM_TRUST, RUNTIME_BASELINE,
+        TRACER_PRESENT, UNACCOUNTED_CODE,
     };
 
     const NOW: u64 = 1_700_000_000_000;
@@ -189,6 +195,7 @@ mod tests {
     impl fidelity_core::Injection for PanickingTracer {}
     impl fidelity_core::Identity for PanickingTracer {}
     impl fidelity_core::Device for PanickingTracer {}
+    impl fidelity_core::Emulation for PanickingTracer {}
 
     impl fidelity_core::Tracer for PanickingTracer {
         fn tracer_state(&self) -> Observation<TracerState> {
@@ -467,6 +474,65 @@ mod tests {
             Outcome::Unsupported { .. }
         ));
     }
+    #[test]
+    fn a_system_on_hardware_is_clean() {
+        let environment =
+            FakeEnvironment::new().with_machine_host(Observation::Fact(MachineHost::Hardware));
+        assert_eq!(outcome_of(&environment, None, MACHINE_HOST), Outcome::Clean);
+    }
+
+    #[test]
+    fn a_system_in_a_virtual_machine_reports_a_medium_finding() {
+        let environment = FakeEnvironment::new().with_machine_host(Observation::Fact(
+            MachineHost::VirtualMachine {
+                detail: BoundedText::new("the kernel reports kern.hv_vmm_present=1"),
+            },
+        ));
+        let Outcome::Finding(finding) = outcome_of(&environment, None, MACHINE_HOST) else {
+            panic!("a reported monitor must report a finding");
+        };
+        assert_eq!(finding.strength(), SignalStrength::Medium);
+    }
+
+    #[test]
+    fn a_system_in_a_virtual_machine_carries_its_own_evidence() {
+        let environment = FakeEnvironment::new().with_machine_host(Observation::Fact(
+            MachineHost::VirtualMachine {
+                detail: BoundedText::new("the kernel reports kern.hv_vmm_present=1"),
+            },
+        ));
+        let Outcome::Finding(finding) = outcome_of(&environment, None, MACHINE_HOST) else {
+            panic!("a reported monitor must report a finding");
+        };
+        assert!(matches!(
+            finding.evidence(),
+            Evidence::VirtualMachineHost { .. }
+        ));
+    }
+
+    #[test]
+    fn a_failed_machine_probe_never_reads_as_clean() {
+        // The rule that the security model states: Fidelity never converts a
+        // detector error into a clean result. A machine that answers nothing
+        // is the case an attacker would want to read as hardware.
+        let environment = FakeEnvironment::new().with_machine_host(Observation::Failed {
+            detail: BoundedText::new("the kernel did not answer kern.hv_vmm_present"),
+        });
+        let Outcome::Finding(finding) = outcome_of(&environment, None, MACHINE_HOST) else {
+            panic!("a failed probe must report a health finding");
+        };
+        assert_eq!(finding.strength(), SignalStrength::Low);
+        assert!(finding.evidence().is_detector_health());
+    }
+
+    #[test]
+    fn a_platform_with_no_machine_probe_reports_unsupported() {
+        assert!(matches!(
+            outcome_of(&FakeEnvironment::new(), None, MACHINE_HOST),
+            Outcome::Unsupported { .. }
+        ));
+    }
+
     #[test]
     fn a_process_whose_code_a_file_accounts_for_is_clean() {
         let environment =

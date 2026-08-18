@@ -34,7 +34,7 @@ mod injection;
 mod sys;
 mod tracer;
 
-use fidelity_core::{Device, Environment, Lifecycle};
+use fidelity_core::{Device, Emulation, Environment, Lifecycle};
 use fidelity_types::Platform;
 
 /// The Linux view of the running process.
@@ -66,6 +66,13 @@ impl Environment for LinuxEnvironment {
 // host grants that user root by design. A root shell, a permissive policy, and
 // a custom kernel are all ordinary there, so the question does not apply.
 impl Device for LinuxEnvironment {}
+
+// Linux can answer `emulation`, and no code exists yet. The kernel states
+// what runs it, in more than one place. The block is the clean control: this
+// project owns a Linux guest, which is a hostile control, and it owns no bare
+// metal Linux to compare it against. A detector with one control is a
+// detector nobody measured.
+impl Emulation for LinuxEnvironment {}
 
 // Linux asks nothing of the worker thread, so the default answers.
 impl Lifecycle for LinuxEnvironment {}

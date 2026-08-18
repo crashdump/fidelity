@@ -27,11 +27,11 @@ pub mod fact;
 mod environment;
 mod observation;
 
-pub use capability::{Baseline, Device, Identity, Injection, Lifecycle, Tracer};
+pub use capability::{Baseline, Device, Emulation, Identity, Injection, Lifecycle, Tracer};
 pub use environment::Environment;
 pub use fact::{
-    CodeIdentity, CodeOrigin, CodeRegions, IdentityMatch, PlatformTrust, Region, Signer,
-    SystemBuild, TracerState, WorkerSetup,
+    CodeIdentity, CodeOrigin, CodeRegions, IdentityMatch, MachineHost, PlatformTrust, Region,
+    Signer, SystemBuild, TracerState, WorkerSetup,
 };
 pub use observation::Observation;
 

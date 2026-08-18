@@ -39,7 +39,7 @@ mod lifecycle;
 mod sys;
 mod tracer;
 
-use fidelity_core::Environment;
+use fidelity_core::{Emulation, Environment};
 use fidelity_types::Platform;
 
 /// The Android view of the running process.
@@ -101,3 +101,10 @@ impl Environment for AndroidEnvironment {
         Platform::Android
     }
 }
+
+// Android can answer `emulation`, and no code exists yet. The property store
+// states what the system runs on, and this probe already reads it for
+// `device`. The clean control is what is missing: both Android controls run on
+// an emulator, which is the hostile side of this question, and a physical
+// device supplies the other side.
+impl Emulation for AndroidEnvironment {}

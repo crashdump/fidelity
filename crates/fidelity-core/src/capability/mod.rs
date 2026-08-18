@@ -34,7 +34,7 @@
 //!
 //! `docs/plan/04-detectors-and-platforms.md` holds the categories, and
 //! `docs/research/platform-notes.md` holds the mechanism candidates. A
-//! capability arrives with its platform evidence, and not before, so this
+//! capability arrives with its platform tests, and not before, so this
 //! list states which questions exist rather than which systems answer them.
 //! The coverage matrix in `docs/plan/06-delivery.md` holds that second table,
 //! and a test keeps it true.
@@ -46,7 +46,7 @@
 //! | [`tracer`] | `Debugging` | Does a debugger or a tracer hold this process? |
 //! | [`injection`] | `Instrumentation` | Is a hook, an injection, or an agent present? |
 //! | [`device`] | `DeviceCompromise` | Is the operating-system security model weakened? |
-//! | `emulation` | `Virtualization` | Does this run in an emulator or a virtual machine? |
+//! | [`emulation`] | `Virtualization` | Does this run in an emulator or a virtual machine? |
 //! | `interface` | `UiAbuse` | Does another application read or drive the interface? |
 //!
 //! One capability answers no question and reports no finding:
@@ -64,6 +64,7 @@
 
 pub mod baseline;
 pub mod device;
+pub mod emulation;
 pub mod identity;
 pub mod injection;
 pub mod lifecycle;
@@ -71,6 +72,7 @@ pub mod tracer;
 
 pub use baseline::Baseline;
 pub use device::Device;
+pub use emulation::Emulation;
 pub use identity::Identity;
 pub use injection::Injection;
 pub use lifecycle::Lifecycle;

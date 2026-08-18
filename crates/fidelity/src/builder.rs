@@ -321,8 +321,8 @@ const HOOKS: Hooks = Hooks {
 #[cfg(test)]
 mod tests {
     use fidelity_core::{
-        Baseline, CodeIdentity, Device, Environment, Identity, Injection, Lifecycle, Observation,
-        PlatformTrust, Signer, Tracer,
+        Baseline, CodeIdentity, Device, Emulation, Environment, Identity, Injection, Lifecycle,
+        Observation, PlatformTrust, Signer, Tracer,
     };
     use fidelity_types::{Action, Choice, ExpectedIdentity, Platform, SignalStrength};
 
@@ -341,6 +341,7 @@ mod tests {
     impl Injection for Bare {}
     impl Baseline for Bare {}
     impl Device for Bare {}
+    impl Emulation for Bare {}
 
     impl Lifecycle for Bare {}
 
@@ -364,6 +365,7 @@ mod tests {
     impl Injection for Signed {}
     impl Baseline for Signed {}
     impl Device for Signed {}
+    impl Emulation for Signed {}
 
     impl Lifecycle for Signed {}
 
