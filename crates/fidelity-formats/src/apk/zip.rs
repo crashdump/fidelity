@@ -96,7 +96,7 @@ mod tests {
     };
 
     /// A real archive that `apksigner` signed, recorded on 2026-08-10. The
-    /// control that made it is `evidence/controls/make-apk.sh`.
+    /// control that made it is `tests/platform/controls/make-apk.sh`.
     const SIGNED: &[u8] = include_bytes!("../fixtures/apk-signed-v2v3.apk");
 
     #[test]

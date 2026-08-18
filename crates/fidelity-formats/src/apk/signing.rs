@@ -176,7 +176,7 @@ mod tests {
     use crate::apk::zip::central_directory_offset;
 
     /// A real archive that `apksigner` signed with both schemes, recorded on
-    /// 2026-08-10. `evidence/controls/make-apk.sh` builds it.
+    /// 2026-08-10. `tests/platform/controls/make-apk.sh` builds it.
     const SIGNED: &[u8] = include_bytes!("../fixtures/apk-signed-v2v3.apk");
 
     /// The signing block of the recorded archive.
@@ -196,7 +196,7 @@ mod tests {
     /// The certificate that the recorded archive carries.
     ///
     /// Two independent sources agree on its digest, and
-    /// `evidence/controls/make-apk.sh` prints both: `keytool -list -v` on the
+    /// `tests/platform/controls/make-apk.sh` prints both: `keytool -list -v` on the
     /// keystore, and a walk of the block.
     fn recorded() -> &'static [u8] {
         let Some(certificate) = signer_certificate(block()) else {

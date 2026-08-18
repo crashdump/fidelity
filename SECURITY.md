@@ -1,9 +1,11 @@
 # Security policy
 
 Fidelity is before its first release. Code runs on four platforms, and no platform is supported
-yet, because a supported label needs the full release evidence. The
-[evidence record](evidence/README.md) states what each platform proved and what it did not, and the
-[gaps](evidence/README.md#gaps) are the work list. Read it before you report, because a limit that
+yet, because a supported label needs the full release tests. The
+[test record](tests/platform/README.md) states what each platform proved and what it did not, and
+the
+[gaps](tests/platform/README.md#gaps) are the work list. Read it before you report, because a limit
+that
 the record already names is a limit and not a defect.
 
 ## What to report

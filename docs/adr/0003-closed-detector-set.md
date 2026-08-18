@@ -19,4 +19,4 @@ assignments reviewable, and lets Fidelity own cross-platform semantics and verif
 - Categories are the configuration boundary; there is no per-detector public policy.
 - `fidelity-testkit` may inject observations into isolated core runtimes for tests without becoming
   a production extension mechanism.
-- A new detector requires a Fidelity release, and the same clean and hostile evidence as the others.
+- A new detector requires a Fidelity release, and the same clean and hostile controls as the others.

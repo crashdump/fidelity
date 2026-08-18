@@ -106,7 +106,7 @@ class HarnessTest {
         // archive, so the key that encrypted the constant is the key that this
         // process derives, and the read returns the literal.
         //
-        // `evidence/controls/repackage-android.sh` is the hostile half. It
+        // `tests/platform/controls/repackage-android.sh` is the hostile half. It
         // signs this same archive with another key, and the same read returns
         // something else with no error anywhere.
         val found = Harness.guardedPrefix()

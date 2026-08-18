@@ -1,7 +1,7 @@
 //! The measurement loop that the `cost` example of each probe crate runs.
 //!
 //! This file belongs to no crate. Each `cost` example includes it with
-//! `#[path]`, because the three examples measure different capabilities and
+//! `#[path]`, because the four examples measure different capabilities and
 //! share only the loop. A copy in each crate would drift, and one number that
 //! a different loop produced is not comparable with the others.
 //!

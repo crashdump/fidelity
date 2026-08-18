@@ -21,10 +21,21 @@
 //! Append one byte to the built binary and run it again with the same digest.
 //! An appended byte leaves an ELF image runnable and changes its content, so
 //! that pair is the repackage control on Linux.
+//!
+//! One alphanumeric token is an iOS team identifier:
+//!
+//! ```text
+//! cargo run --example identity --target aarch64-apple-ios-sim -- ABCDE12345
+//! ```
+//!
+//! An image that names no team reports `High` against any pinned team, and an
+//! image that names one reports clean against its own. Apple refuses to launch
+//! a self-signed image that carries the team entitlement, so only the first
+//! half of that pair runs here. See `tests/platform/README.md`.
 
 use fidelity::{
     Action, AuthenticodeThumbprint, Choice, CodeRequirement, ContentDigest, ExpectedIdentity,
-    Outcome, SignalStrength,
+    Outcome, SignalStrength, TeamIdentifier,
 };
 
 /// Whether the argument is a digest rather than a code requirement.
@@ -33,6 +44,16 @@ use fidelity::{
 /// punctuation, and a digest is 64 hexadecimal characters and nothing else.
 fn is_digest(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+/// Whether the argument is a team identifier rather than a code requirement.
+///
+/// Apple owns both formats, and the two cannot be confused either: a code
+/// requirement holds spaces and punctuation, and a team identifier is one
+/// alphanumeric token. A digest is alphanumeric as well, so the caller tests
+/// that shape first.
+fn is_team(value: &str) -> bool {
+    !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_alphanumeric())
 }
 
 /// The bytes of one hexadecimal digest.
@@ -61,6 +82,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .macos(Choice::AcceptUnsupported)
                 .ios(Choice::AcceptUnsupported)
                 .android(Choice::AcceptUnsupported)
+        } else if is_team(&stated) {
+            ExpectedIdentity::new()
+                .ios(Choice::Value(TeamIdentifier::new(stated)?))
+                .macos(Choice::AcceptUnsupported)
+                .windows(Choice::AcceptUnsupported)
+                .android(Choice::AcceptUnsupported)
+                .linux(Choice::AcceptUnsupported)
         } else {
             ExpectedIdentity::new()
                 .macos(Choice::Value(CodeRequirement::new(stated)?))

@@ -11,14 +11,14 @@
 # The driver is a third-party binary, so it is not committed. This script
 # fetches it, and the Packer build reads it from the same place.
 #
-#     evidence/vm/windows/fetch-drivers.sh
+#     tests/platform/vm/windows/fetch-drivers.sh
 set -eu
 
-# A pinned release, so a rebuild uses the same driver that the evidence names.
+# A pinned release, so a rebuild uses the same driver that the test record names.
 VERSION=0.1.285
 ISO_URL=https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/archive-virtio/virtio-win-$VERSION-1/virtio-win-$VERSION.iso
 
-ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../../../.." && pwd)
 OUT=$ROOT/target/vm/windows/drivers/netkvm
 CACHE=$ROOT/target/vm/windows/virtio-win-$VERSION.iso
 

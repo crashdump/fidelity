@@ -10,7 +10,7 @@
 //! `identity` is absent, because no Linux code answers it yet. See the
 //! [coverage matrix](../../../../docs/plan/06-delivery.md#capability-coverage).
 
-/// The measurement loop, which the three probe examples share.
+/// The measurement loop, which the four probe examples share.
 #[cfg(target_os = "linux")]
 #[path = "../../measure.rs"]
 mod measure;

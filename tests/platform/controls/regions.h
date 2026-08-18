@@ -4,8 +4,8 @@
  * a control can measure a region count without linking the library. It does not
  * descend into a submap, for the reason that module records.
  */
-#ifndef FIDELITY_EVIDENCE_REGIONS_H
-#define FIDELITY_EVIDENCE_REGIONS_H
+#ifndef FIDELITY_PLATFORM_REGIONS_H
+#define FIDELITY_PLATFORM_REGIONS_H
 
 #include <mach/mach.h>
 #include <mach/mach_vm.h>

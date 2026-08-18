@@ -11,7 +11,7 @@
 //! baseline instead. See
 //! [detectors and platforms](../../../../docs/plan/04-detectors-and-platforms.md).
 
-/// The measurement loop, which the three probe examples share.
+/// The measurement loop, which the four probe examples share.
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 #[path = "../../measure.rs"]
 mod measure;

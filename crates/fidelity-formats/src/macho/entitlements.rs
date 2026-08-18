@@ -98,7 +98,7 @@ mod tests {
     use crate::macho::signature::entitlements;
 
     /// A real ad-hoc signature that carries a team-prefixed application
-    /// identifier. `evidence/controls/entitle.c` made it.
+    /// identifier. `tests/platform/controls/entitle.c` made it.
     const WITH_TEAM: &[u8] = include_bytes!("../fixtures/macho-signature-team.bin");
 
     /// The entitlements of the recorded ad-hoc signature.

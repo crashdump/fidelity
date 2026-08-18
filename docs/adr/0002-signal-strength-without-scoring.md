@@ -18,7 +18,7 @@ strengths are enough for v1 risk choices, and the project can justify each one p
 
 ## Consequences
 
-- Every strength assignment needs clean and hostile evidence.
+- Every strength assignment needs clean and hostile controls.
 - Repetition never turns an inconclusive detector into a compromise finding.
 - Impact and application sensitivity stay host concerns. They are not detector fields. A host that
   wants to weigh several findings together does so in its callback, and latches the result with

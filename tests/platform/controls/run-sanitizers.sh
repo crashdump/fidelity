@@ -1,9 +1,9 @@
 #!/bin/sh
 # Runs the unsafe-wrapper test layer that `docs/plan/05-verification.md` names.
 #
-#   evidence/controls/run-sanitizers.sh            the two sanitizers
-#   evidence/controls/run-sanitizers.sh miri       add Miri, which takes minutes
-#   evidence/controls/run-sanitizers.sh just-miri  Miri alone, for a caller that
+#   tests/platform/controls/run-sanitizers.sh            the two sanitizers
+#   tests/platform/controls/run-sanitizers.sh miri       add Miri, which takes minutes
+#   tests/platform/controls/run-sanitizers.sh just-miri  Miri alone, for a caller that
 #                                                  already ran the sanitizers
 #
 # The three tools cover different ground, and none of them covers the others:

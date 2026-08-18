@@ -1,9 +1,9 @@
-# Builds the golden Windows guest image that the evidence harness runs against.
+# Builds the golden Windows guest image that the test harness runs against.
 #
 # The build boots the installation image, runs `install.cmd` in WinPE to apply
 # the image, waits for the OpenSSH server that `setup.ps1` installs, and then
 # provisions the toolchain over SSH. The output is one qcow2 plus the firmware
-# variable store beside it, and `evidence/controls/vm.sh` starts both.
+# variable store beside it, and `tests/platform/controls/vm.sh` starts both.
 #
 # Windows 11 25H2 boots a new Setup that ignores an answer file on its first
 # pages, so this does not use Setup. `install.cmd` partitions the disk and
@@ -11,16 +11,16 @@
 # drives only the passes that run inside the installed system. The boot
 # command reaches the WinPE prompt and starts that script.
 #
-#     evidence/vm/windows/make-answers.sh
-#     packer init evidence/vm/windows
-#     packer build -force evidence/vm/windows
+#     tests/platform/vm/windows/make-answers.sh
+#     packer init tests/platform/vm/windows
+#     packer build -force tests/platform/vm/windows
 #
 # Run the commands from the root of the repository. The build expects the
 # installation image at `windows_iso`, and `vm.sh windows iso` states where a
 # person fetches it.
 #
 # The device list below is measured, not designed. A hand-driven install paid
-# for each line, and `evidence/controls/vm.sh` records the findings in full:
+# for each line, and `tests/platform/controls/vm.sh` records the findings in full:
 #
 #   - The system disk is NVMe and the two media are USB, because Windows 11
 #     ARM64 carries an inbox driver for those and for nothing else here. The
@@ -55,7 +55,7 @@ packer {
 variable "windows_iso" {
   type        = string
   default     = "${env("HOME")}/.local/share/fidelity-vm/windows/windows.iso"
-  description = "The Windows 11 ARM64 installation image. See: evidence/controls/vm.sh windows iso"
+  description = "The Windows 11 ARM64 installation image. See: tests/platform/controls/vm.sh windows iso"
 }
 
 variable "firmware_code" {
@@ -200,7 +200,7 @@ build {
   # The harness runs as one POSIX shell script on every system, so the guest
   # needs a shell that reports a Windows `uname`, and `cygpath` beside it.
   # Git for Windows carries both. The version is pinned, so a rebuild uses
-  # the release that the evidence names.
+  # the release that the test record names.
   provisioner "powershell" {
     inline = [
       "$ErrorActionPreference = 'Stop'",

@@ -7,7 +7,7 @@
 # committed and not shared.
 set -eu
 
-ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
 KEY=$ROOT/target/vm/id_ed25519
 
 mkdir -p "$ROOT/target/vm"

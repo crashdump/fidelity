@@ -5,7 +5,7 @@
 # that CARGO_TARGET_AARCH64_APPLE_IOS_SIM_RUNNER expects:
 #
 #   export FIDELITY_IOS_SIM=<the UDID of a booted simulator>
-#   export CARGO_TARGET_AARCH64_APPLE_IOS_SIM_RUNNER=$PWD/evidence/controls/run-ios.sh
+#   export CARGO_TARGET_AARCH64_APPLE_IOS_SIM_RUNNER=$PWD/tests/platform/controls/run-ios.sh
 #   cargo test -p fidelity-probe-apple --target aarch64-apple-ios-sim
 set -e
 

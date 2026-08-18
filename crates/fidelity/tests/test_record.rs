@@ -1,12 +1,12 @@
-//! Tests that the evidence record states what the code actually claims.
+//! Tests that the test record states what the code actually claims.
 //!
-//! `docs/plan/05-verification.md` makes missing evidence the thing that blocks
+//! `docs/plan/05-verification.md` makes a missing control the thing that blocks
 //! a platform from the supported label. That only works while the record and
 //! the code agree, and nothing made them agree before this file.
 //!
 //! The failure it stops is quiet. A capability lands, its cell in the coverage
 //! matrix turns to `yes`, `capability_matrix.rs` passes because the code is
-//! real, and `evidence/README.md` never gains a row. The library then claims a
+//! real, and `tests/platform/README.md` never gains a row. The library then claims a
 //! platform that no recorded control ever exercised.
 //!
 //! These rules read Markdown and Rust as text, for the reason that
@@ -24,7 +24,7 @@ use std::path::PathBuf;
 
 /// The systems that the coverage matrix names, in its column order.
 ///
-/// The evidence record uses the same names, so a row binds to a cell.
+/// The test record uses the same names, so a row binds to a cell.
 const SYSTEMS: &[&str] = &["macOS", "iOS", "Windows", "Linux", "Android"];
 
 /// The workspace root, from this crate's manifest.
@@ -66,20 +66,20 @@ const NO_CATEGORY: &str = "none";
 /// needs a clean control.
 const NO_DETECTOR: &str = "none";
 
-/// One row of the evidence record: its capability, detector, and system.
-struct Evidence {
+/// One row of the test record: its capability, detector, and system.
+struct Row {
     capability: String,
     detector: String,
     system: String,
 }
 
-/// Reads the detector coverage table out of the evidence record.
+/// Reads the detector coverage table out of the test record.
 ///
 /// The table starts at the header whose first cell is `Capability`, and it ends
 /// at the first line that is not part of a table. Every later table in the file
 /// therefore stays out of these rules.
-fn record() -> Vec<Evidence> {
-    let text = read("evidence/README.md");
+fn record() -> Vec<Row> {
+    let text = read("tests/platform/README.md");
     let mut rows = Vec::new();
     let mut inside = false;
 
@@ -102,21 +102,21 @@ fn record() -> Vec<Evidence> {
         if !inside || cells.iter().all(|cell| cell.starts_with("---")) {
             continue;
         }
-        rows.push(Evidence {
+        rows.push(Row {
             capability: cells[0].clone(),
             detector: cells[1].clone(),
             system: cells[2].clone(),
         });
     }
 
-    assert!(!rows.is_empty(), "the evidence record must hold rows");
+    assert!(!rows.is_empty(), "the test record must hold rows");
     rows
 }
 
 /// Every `yes` cell of the coverage matrix, as a capability and a system.
 ///
 /// This reads the same table that `capability_matrix.rs` reads. That file binds
-/// a cell to code, and this one binds the same cell to evidence.
+/// a cell to code, and this one binds the same cell to a recorded control.
 fn implemented() -> Vec<(String, String)> {
     let text = read("docs/plan/06-delivery.md");
     let mut found = Vec::new();
@@ -206,9 +206,9 @@ fn detectors() -> BTreeSet<String> {
 }
 
 #[test]
-fn every_implemented_capability_holds_an_evidence_row() {
+fn every_implemented_capability_holds_a_record_row() {
     // The rule that matters. A `yes` cell states that the platform answers, and
-    // `05-verification.md` states that only real clean and hostile evidence
+    // `05-verification.md` states that only real clean and hostile controls
     // makes that claim legitimate. Without this rule the two documents can
     // disagree in silence, and the release gate reads both.
     let rows = record();
@@ -217,7 +217,7 @@ fn every_implemented_capability_holds_an_evidence_row() {
         assert!(
             rows.iter()
                 .any(|row| row.capability == capability && row.system == system),
-            "the matrix reads yes for {capability} on {system}, and the evidence record holds no \
+            "the matrix reads yes for {capability} on {system}, and the test record holds no \
              row for it"
         );
         checked += 1;
@@ -226,7 +226,7 @@ fn every_implemented_capability_holds_an_evidence_row() {
 }
 
 #[test]
-fn every_evidence_row_names_a_detector_that_exists() {
+fn every_record_row_names_a_detector_that_exists() {
     // A row for a detector that no crate declares records a control that
     // nothing runs. It also catches a detector that was renamed and left a
     // stale row behind.
@@ -237,7 +237,7 @@ fn every_evidence_row_names_a_detector_that_exists() {
         }
         assert!(
             declared.contains(&row.detector),
-            "the evidence record names {}, and no detector declares that name",
+            "the test record names {}, and no detector declares that name",
             row.detector
         );
     }
@@ -266,20 +266,20 @@ fn a_row_reads_none_only_where_the_capability_reports_no_finding() {
 }
 
 #[test]
-fn every_evidence_row_names_a_system_that_the_matrix_holds() {
+fn every_record_row_names_a_system_that_the_matrix_holds() {
     // The record and the matrix have to use one vocabulary, or the rule above
     // silently matches nothing.
     for row in record() {
         assert!(
             SYSTEMS.contains(&row.system.as_str()),
-            "the evidence record names the system {}, and the matrix holds {SYSTEMS:?}",
+            "the test record names the system {}, and the matrix holds {SYSTEMS:?}",
             row.system
         );
     }
 }
 
 #[test]
-fn every_evidence_row_names_a_capability_that_the_matrix_holds() {
+fn every_record_row_names_a_capability_that_the_matrix_holds() {
     let known: BTreeSet<String> = implemented()
         .into_iter()
         .map(|(capability, _)| capability)
@@ -287,7 +287,7 @@ fn every_evidence_row_names_a_capability_that_the_matrix_holds() {
     for row in record() {
         assert!(
             known.contains(&row.capability),
-            "the evidence record names the {} capability, and no matrix cell reads yes for it",
+            "the test record names the {} capability, and no matrix cell reads yes for it",
             row.capability
         );
     }
@@ -301,10 +301,10 @@ fn the_harness_names_every_control() {
     //
     // The harness either runs a control or records that a person runs it. This
     // rule stops the third case, which is silence.
-    let harness = read("evidence/run.sh");
-    let directory = root().join("evidence/controls");
+    let harness = read("tests/platform/run.sh");
+    let directory = root().join("tests/platform/controls");
     let Ok(entries) = fs::read_dir(&directory) else {
-        panic!("evidence/controls must exist");
+        panic!("tests/platform/controls must exist");
     };
     let mut checked = 0_usize;
     for entry in entries.flatten() {
@@ -312,7 +312,7 @@ fn the_harness_names_every_control() {
         let name = name.to_string_lossy();
         assert!(
             harness.contains(name.as_ref()),
-            "evidence/controls/{name} exists, and evidence/run.sh names no control by that name"
+            "tests/platform/controls/{name} exists, and tests/platform/run.sh names no control by that name"
         );
         checked += 1;
     }
@@ -324,7 +324,7 @@ fn every_control_that_the_record_names_exists() {
     // A record that points at a control nobody can find is a record of nothing.
     // The controls are the part that makes a claim reproducible after the
     // machine that produced it is gone.
-    let text = read("evidence/README.md");
+    let text = read("tests/platform/README.md");
     let mut checked = 0_usize;
     for (index, _) in text.match_indices("controls/") {
         let rest = &text[index..];
@@ -340,10 +340,41 @@ fn every_control_that_the_record_names_exists() {
             continue;
         }
         assert!(
-            root().join("evidence").join(named).is_file(),
-            "the evidence record names evidence/{named}, and no such file exists"
+            root().join("tests/platform").join(named).is_file(),
+            "the test record names tests/platform/{named}, and no such file exists"
         );
         checked += 1;
     }
     assert!(checked > 0, "the record must name a control");
+}
+
+#[test]
+fn the_gate_takes_its_target_list_from_the_harness() {
+    // The harness cross-builds every supported target, and the gate installs
+    // them. A target that the list gains and the gate lacks fails there as a
+    // missing standard library, and that message names neither the target nor
+    // the toolchain that lacks it. It happened on 2026-08-18, so this rule
+    // stops the second copy rather than the symptom.
+    let harness = read("tests/platform/run.sh");
+    let Some(line) = harness.lines().find(|line| line.starts_with("TARGETS=")) else {
+        panic!("tests/platform/run.sh must state its target list on a TARGETS= line");
+    };
+    let targets: Vec<&str> = line
+        .trim_start_matches("TARGETS=")
+        .trim_matches('"')
+        .split_whitespace()
+        .collect();
+    assert!(targets.len() > 1, "the rule must check a target");
+
+    let gate = read(".github/workflows/ci.yml");
+    assert!(
+        gate.contains("run.sh --targets"),
+        "the gate must ask tests/platform/run.sh for the target list"
+    );
+    for target in targets {
+        assert!(
+            !gate.contains(target),
+            "the gate names {target} itself, and that copy drifts from tests/platform/run.sh"
+        );
+    }
 }

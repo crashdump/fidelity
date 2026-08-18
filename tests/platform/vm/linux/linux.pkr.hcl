@@ -1,4 +1,4 @@
-# Builds the golden Linux guest image that the evidence harness runs against.
+# Builds the golden Linux guest image that the test harness runs against.
 #
 # The guest replaces the container that ran the Linux controls before. A
 # container shares the kernel of its host, so it holds no filesystem of its own
@@ -8,13 +8,13 @@
 #
 # This template boots the Debian cloud image, lets cloud-init create the build
 # account, installs the toolchain and the control dependencies, and writes one
-# qcow2 that `evidence/controls/vm.sh` starts. The build is declarative and
+# qcow2 that `tests/platform/controls/vm.sh` starts. The build is declarative and
 # repeatable, so the image is an artifact rather than a machine that a person
 # set up by hand.
 #
-#     evidence/vm/make-key.sh
-#     packer init evidence/vm/linux
-#     packer build -force evidence/vm/linux
+#     tests/platform/vm/make-key.sh
+#     packer init tests/platform/vm/linux
+#     packer build -force tests/platform/vm/linux
 
 packer {
   required_plugins {
@@ -28,7 +28,7 @@ packer {
 variable "debian_image" {
   type        = string
   default     = "https://cloud.debian.org/images/cloud/trixie/latest/debian-13-generic-arm64.qcow2"
-  description = "The Debian release that the evidence record names. A guest that reported another distribution would not compare against the recorded rows."
+  description = "The Debian release that the test record names. A guest that reported another distribution would not compare against the recorded rows."
 }
 
 variable "firmware_code" {

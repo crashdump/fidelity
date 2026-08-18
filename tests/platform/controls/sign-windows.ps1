@@ -62,6 +62,12 @@ foreach ($name in 'Root', 'TrustedPublisher') {
     $store.Close()
 }
 
+# The script makes its own output directory. It relied on one that an earlier
+# run left behind, so a rename of that directory broke all three arms at once
+# with a `DirectoryNotFoundException` that named no cause. Its two sibling
+# controls each create theirs.
+New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
+
 $signedTrusted = Join-Path $OutDir 'signed-trusted.exe'
 $signedUntrusted = Join-Path $OutDir 'signed-untrusted.exe'
 Copy-Item $Source $signedTrusted -Force

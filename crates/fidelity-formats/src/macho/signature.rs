@@ -90,7 +90,7 @@ mod tests {
     /// A real ad-hoc signature that carries a team-prefixed application
     /// identifier. Captured on macOS 26 and ARM64 on 2026-08-10, from a
     /// binary that `codesign --sign - --entitlements` produced. The control
-    /// that made it is `evidence/controls/entitle.c`.
+    /// that made it is `tests/platform/controls/entitle.c`.
     const WITH_TEAM: &[u8] = include_bytes!("../fixtures/macho-signature-team.bin");
 
     /// The same binary, signed ad hoc with no entitlements at all.

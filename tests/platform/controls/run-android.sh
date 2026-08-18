@@ -4,7 +4,7 @@
 # Cargo calls this with the test binary and its arguments, so it has the shape
 # that CARGO_TARGET_AARCH64_LINUX_ANDROID_RUNNER expects:
 #
-#   export CARGO_TARGET_AARCH64_LINUX_ANDROID_RUNNER=$PWD/evidence/controls/run-android.sh
+#   export CARGO_TARGET_AARCH64_LINUX_ANDROID_RUNNER=$PWD/tests/platform/controls/run-android.sh
 #   cargo test -p fidelity-probe-android --target aarch64-linux-android
 #
 # It needs `adb` on the path, and one device attached.

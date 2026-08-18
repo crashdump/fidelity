@@ -2,7 +2,7 @@
 # Runs the controls that this machine can reach, and writes the generated
 # record that docs/plan/05-verification.md asks for.
 #
-#     evidence/run.sh [record path]
+#     tests/platform/run.sh [record path]
 #
 # The record is a tab-separated file, one row for each control, with four
 # columns: system, control, result, detail. A result is one of
@@ -11,29 +11,53 @@
 #     fail      the control ran here and gave another answer
 #     skipped   this machine cannot reach the system, and the detail says why
 #     manual    a person runs this control, and the detail says where the
-#               result lives in evidence/README.md
+#               result lives in tests/platform/README.md
 #
 # The skipped rows carry the weight. A record that lists only what passed reads
 # as complete coverage, and no machine reaches every system that Fidelity
 # supports. This one names what it could not run.
 #
-# The script leaves output for each control under target/evidence/, and it
+# The script leaves output for each control under target/platform/, and it
 # exits non-zero when any control that ran gave a wrong answer.
 set -u
 
-ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-RECORD=${1:-$ROOT/evidence/record.tsv}
-OUT=$ROOT/target/evidence
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+RECORD=${1:-$ROOT/tests/platform/record.tsv}
+OUT=$ROOT/target/platform
 FAILED=0
 
 # Every target that a probe crate builds for. The cross-check is what proves
 # that a change to a capability trait still compiles every platform.
-TARGETS="aarch64-apple-darwin aarch64-apple-ios aarch64-linux-android aarch64-unknown-linux-gnu aarch64-pc-windows-msvc x86_64-pc-windows-msvc"
+#
+# Every supported architecture of every platform is here, because the release
+# gate in 05-verification.md asks that each one builds with its intended
+# toolchain. Until 2026-08-18 the list held one x86_64 target, and a change that
+# broke the others would have reached a release. macOS and iOS name one target
+# each, because Apple Silicon is the only Apple hardware in scope.
+#
+# A build proves nothing. Every detector result that this machine produced came
+# from ARM64, and the gaps table in README.md states that.
+TARGETS="aarch64-apple-darwin aarch64-apple-ios aarch64-linux-android x86_64-linux-android aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu aarch64-pc-windows-msvc x86_64-pc-windows-msvc"
+
+# Prints that list, one target for each line, and stops. The gate installs what
+# it prints, so the workflow file holds no second copy. The three targets that
+# arrived on 2026-08-18 reached the cross-check and never reached the gate, and
+# `rustup` reports a missing target as a missing standard library, which names
+# neither the target nor the toolchain that lacks it.
+if [ "${1:-}" = "--targets" ]; then
+    for target in $TARGETS; do
+        echo "$target"
+    done
+    exit 0
+fi
 
 # A digest of the right shape, for the build rules that must refuse a value.
 DIGEST=9f3a1c0e5b7d2846a09f3a1c0e5b7d2846a09f3a1c0e5b7d2846a09f3a1c0e5b
 
 mkdir -p "$OUT"
+# The markers that the timeout below writes. A run that a person stopped leaves
+# them, and a stale one must not decide anything in the next run.
+rm -f "$OUT"/.killed-* "$OUT"/.finished-*
 : > "$RECORD"
 
 # Writes one row, to the record and to the terminal.
@@ -57,8 +81,89 @@ answer() {
              END { printf "%d passed, %d failed", passed, failed }' "$file"
         return
     fi
+    # A cost example prints one line for each read, and the last line alone
+    # states almost nothing. The Windows column of 07-state-and-budgets.md was
+    # absent for two days because this function kept that one line. Join every
+    # read instead, so the record carries the whole measurement.
+    if grep -q '^read  *each  *runs' "$file" 2>/dev/null; then
+        awk 'seen { printf "%s%s %s", separator, $1, $2; separator = "; " }
+             /^read  *each  *runs/ { seen = 1 }' "$file"
+        return
+    fi
     grep -v '^[[:space:]]*$' "$file" 2>/dev/null | tail -1 | tr -d '\t' |
         sed "s|$ROOT/||g" | cut -c1-160
+}
+
+# The longest one control may take. A control that hangs must fail and say so,
+# and it must not stop the run. The Android instrumented control stalled once
+# for 12 hours, and the harness reported nothing at all until a person looked.
+# Measured on 2026-08-18: the slowest control that passes takes 41 s, so this
+# limit leaves a wide margin over every control that works.
+LIMIT=${FIDELITY_CONTROL_LIMIT:-900}
+
+# The text that a killed control prints. Both callers below look for it.
+KILLED="the harness killed this control, because it passed the $LIMIT second limit"
+
+# Kills a process and every descendant of it.
+#
+# A control runs `cargo`, which runs a test binary, so a kill of the first one
+# alone leaves the work running.
+kill_tree() {
+    for child in $(pgrep -P "$1" 2> /dev/null); do
+        kill_tree "$child"
+    done
+    kill -9 "$1" 2> /dev/null
+}
+
+# Counts the controls, so each one owns a pair of marker files.
+GUARDED=0
+
+# Runs a command, and kills it when it passes the limit above.
+#
+# A base macOS carries no `timeout`, and a control that needs one from a
+# package manager is a control that runs on one machine. So this is the
+# portable form: the work runs in the background, a watchdog waits, and
+# whichever finishes first decides. The watchdog writes a marker, because the
+# status of a killed process does not say who killed it.
+#
+# The watchdog ends by itself, and nothing kills it. A kill wrote "Killed: 9"
+# to the terminal for every control, because the shell reports a background job
+# that a signal stopped, and a passing run then read as a failing one. So the
+# watchdog polls a marker that this function writes when the work ends. The
+# shell still writes that one line for a control that the watchdog killed,
+# which is a true statement about a control that failed, and the line below
+# follows it and names the limit.
+#
+# Each control owns its own two markers. A watchdog can outlive its control by
+# up to one second, and a shared marker would let that one kill the next
+# control, or report a limit that nothing passed.
+guard() {
+    GUARDED=$((GUARDED + 1))
+    killed=$OUT/.killed-$GUARDED
+    finished=$OUT/.finished-$GUARDED
+    rm -f "$killed" "$finished"
+    "$@" &
+    work=$!
+    (
+        waited=0
+        while [ "$waited" -lt "$LIMIT" ]; do
+            sleep 1
+            if [ -e "$finished" ]; then
+                exit 0
+            fi
+            waited=$((waited + 1))
+        done
+        : > "$killed"
+        kill_tree "$work"
+    ) &
+    wait "$work"
+    status=$?
+    : > "$finished"
+    if [ -e "$killed" ]; then
+        echo "$KILLED"
+        return 124
+    fi
+    return "$status"
 }
 
 # Runs one control that must succeed.
@@ -68,7 +173,7 @@ run() {
     name=$2
     shift 2
     begin=$(date +%s)
-    if "$@" > "$OUT/$name.out" 2>&1; then
+    if guard "$@" > "$OUT/$name.out" 2>&1; then
         result=pass
     else
         result=fail
@@ -85,8 +190,13 @@ refute() {
     needle=$3
     shift 3
     begin=$(date +%s)
-    if "$@" > "$OUT/$name.out" 2>&1; then
+    if guard "$@" > "$OUT/$name.out" 2>&1; then
         note "$system" "$name" fail "the control succeeded, and it must not"
+        FAILED=$((FAILED + 1))
+    elif grep -qF "$KILLED" "$OUT/$name.out"; then
+        # This one comes before the needle, because a control that never
+        # finished refused nothing.
+        note "$system" "$name" fail "$KILLED"
         FAILED=$((FAILED + 1))
     elif grep -qF "$needle" "$OUT/$name.out"; then
         note "$system" "$name" pass "$(($(date +%s) - begin))s. refused, and it said \"$needle\""
@@ -100,7 +210,7 @@ skip() { note "$1" "$2" skipped "$3"; }
 manual() { note "$1" "$2" manual "$3"; }
 
 {
-    printf '# generated by evidence/run.sh on %s, on %s\n' \
+    printf '# generated by tests/platform/run.sh on %s, on %s\n' \
         "$(date -u '+%Y-%m-%d %H:%M UTC')" "$(uname -sm)"
     printf 'system\tcontrol\tresult\tdetail\n'
 } >> "$RECORD"
@@ -120,6 +230,13 @@ rustdoc() {
 # feature, so this enables no platform code and hides no target behind a flag.
 run host workspace-tests cargo test --workspace --all-features
 run host workspace-lints cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+# The default build is what a host gets, and it is the only build that resolves
+# to no external crate. Every row above enables both features, so nothing lints
+# the code that a feature removes. The `tracing` events expand to nothing when
+# the feature is off, and that is exactly the arm this row compiles.
+run host workspace-default-lints cargo clippy --workspace --all-targets --locked -- -D warnings
+
 run host workspace-format cargo fmt --check
 run host workspace-rustdoc rustdoc
 for target in $TARGETS; do
@@ -217,16 +334,16 @@ two_seeds() {
 }
 run host two-seeds-two-binaries two_seeds
 
-run host sanitizers "$ROOT/evidence/controls/run-sanitizers.sh"
+run host sanitizers "$ROOT/tests/platform/controls/run-sanitizers.sh"
 
 # `05-verification.md` puts the sanitizers on every change and Miri on a
 # schedule. Miri walks seven crates and takes longer than the whole rest of this
 # harness, so the default run records why it did not run rather than staying
 # silent about it.
 if [ "${FIDELITY_WITH_MIRI:-}" = 1 ]; then
-    run host miri "$ROOT/evidence/controls/run-sanitizers.sh" just-miri
+    run host miri "$ROOT/tests/platform/controls/run-sanitizers.sh" just-miri
 else
-    skip host miri "05-verification.md schedules Miri, and it costs 4 minutes: FIDELITY_WITH_MIRI=1 evidence/run.sh"
+    skip host miri "05-verification.md schedules Miri, and it costs 4 minutes: FIDELITY_WITH_MIRI=1 tests/platform/run.sh"
 fi
 
 # ------------------------------------------------------- the minimum Rust version
@@ -263,7 +380,7 @@ if [ "$(uname -s)" = Darwin ]; then
     # half costs its whole 40 second deadline, and that wait is the measurement.
     late() {
         cargo build --quiet --example late -p fidelity || return 1
-        clang -dynamiclib -o "$OUT/delayed.dylib" "$ROOT/evidence/controls/delayed.c" || return 1
+        clang -dynamiclib -o "$OUT/delayed.dylib" "$ROOT/tests/platform/controls/delayed.c" || return 1
         env "$@" "$ROOT/target/debug/examples/late"
     }
     baseline_hostile() { late DYLD_INSERT_LIBRARIES="$OUT/delayed.dylib"; }
@@ -283,7 +400,7 @@ if [ "$(uname -s)" = Darwin ]; then
     }
     tracer_attaches() {
         cargo build --quiet --example attach -p fidelity || return 1
-        "$ROOT/evidence/controls/trace-after-start.sh" \
+        "$ROOT/tests/platform/controls/trace-after-start.sh" \
             "$ROOT/target/debug/examples/attach" lldb -p
     }
 
@@ -295,8 +412,8 @@ if [ "$(uname -s)" = Darwin ]; then
     }
     plugin_load() {
         plugin || return 1
-        clang -I "$ROOT/evidence/controls" -o "$OUT/plugin-load" \
-            "$ROOT/evidence/controls/plugin-load.c" || return 1
+        clang -I "$ROOT/tests/platform/controls" -o "$OUT/plugin-load" \
+            "$ROOT/tests/platform/controls/plugin-load.c" || return 1
         counts=$("$OUT/plugin-load" "$OUT/plugin.dylib") || return 1
         printf '%s\n' "$counts"
         # A library that the dyld shared cache already holds adds no region,
@@ -312,7 +429,7 @@ if [ "$(uname -s)" = Darwin ]; then
     legitimate() {
         plugin || return 1
         clang -dynamiclib -o "$OUT/legitimate.dylib" \
-            "$ROOT/evidence/controls/legitimate.c" || return 1
+            "$ROOT/tests/platform/controls/legitimate.c" || return 1
         cargo build --quiet --example late -p fidelity || return 1
         env DYLD_INSERT_LIBRARIES="$OUT/legitimate.dylib" FIDELITY_PLUGIN="$1" \
             "$ROOT/target/debug/examples/late"
@@ -320,7 +437,106 @@ if [ "$(uname -s)" = Darwin ]; then
     legitimate_plugin() { legitimate "$OUT/plugin.dylib"; }
     legitimate_cached() { legitimate /usr/lib/libcurl.dylib; }
 
+    # The image-identity set. Until 2026-08-18 macOS had no identity control
+    # here at all, and its rows in README.md came from a person.
+    #
+    # Four of the five arms that 05-verification.md asks for run with no Apple
+    # Developer account, because a code requirement may name a cdhash rather
+    # than a signer. The linker gives every local build an ad-hoc signature, so
+    # the image has a cdhash of its own to pin. The fifth arm needs a second
+    # certificate of one team, and the gaps table in README.md states that.
+    identity_example() {
+        FIDELITY_BUILD_SEED=test FIDELITY_CODE_IDENTITY=none \
+            cargo build --quiet --example identity -p fidelity
+    }
+    # The designated requirement of the running image, as codesign prints it.
+    own_requirement() {
+        codesign -d -r- "$ROOT/target/debug/examples/identity" 2>&1 |
+            sed -n 's/^# designated => //p'
+    }
+    identity_adhoc_macos() {
+        identity_example || return 1
+        FIDELITY_BUILD_SEED=test FIDELITY_CODE_IDENTITY=none \
+            "$ROOT/target/debug/examples/identity" |
+            grep 'platform_trust: Medium'
+    }
+    identity_clean_macos() {
+        identity_example || return 1
+        requirement=$(own_requirement) || return 1
+        [ -n "$requirement" ] || return 1
+        FIDELITY_BUILD_SEED=test FIDELITY_CODE_IDENTITY=none \
+            "$ROOT/target/debug/examples/identity" "$requirement" |
+            grep 'expected_identity: clean'
+    }
+    identity_pinned_other_macos() {
+        identity_example || return 1
+        FIDELITY_BUILD_SEED=test FIDELITY_CODE_IDENTITY=none \
+            "$ROOT/target/debug/examples/identity" \
+            'anchor apple generic and certificate leaf[subject.OU] = "ABCDE12345"' |
+            grep 'expected_identity: High'
+    }
+    # The repackage arm. A copy that another party re-signs keeps every byte of
+    # the code and gets another cdhash, so the pinned requirement fails.
+    #
+    # The check that the two hashes differ is what makes this control real. An
+    # earlier form appended bytes instead, `codesign` refused the broken Mach-O,
+    # and the copy kept the original signature. It then reported clean against
+    # its own pin, which reads exactly like a control that worked.
+    identity_repackaged_macos() {
+        identity_example || return 1
+        requirement=$(own_requirement) || return 1
+        [ -n "$requirement" ] || return 1
+        cp "$ROOT/target/debug/examples/identity" "$OUT/repackaged" || return 1
+        codesign -f -s - --identifier repackaged.by.another.party \
+            "$OUT/repackaged" > /dev/null 2>&1 || return 1
+        after=$(codesign -d -r- "$OUT/repackaged" 2>&1 |
+            sed -n 's/^# designated => //p')
+        if [ "$after" = "$requirement" ]; then
+            echo "the copy kept the original cdhash, so this control proves nothing"
+            return 1
+        fi
+        FIDELITY_BUILD_SEED=test FIDELITY_CODE_IDENTITY=none \
+            "$OUT/repackaged" "$requirement" | grep 'expected_identity: High'
+    }
+
+    # The machine-host pair. The clean half is this machine, and the hostile
+    # half is a macOS guest, because only a kernel that runs under a monitor
+    # reports the other answer. `tests/platform/vm/macos/` builds that guest, and
+    # `vm.sh macos setup` states the one step that stays manual.
+    machine_hardware_macos() {
+        cargo build --quiet --example machine -p fidelity || return 1
+        "$ROOT/target/debug/examples/machine" | grep 'machine_host: clean'
+    }
+    # The guest runs the same binary that the clean half ran. Host and guest
+    # take one target triple, so no build happens in the guest and the guest
+    # needs no tool chain of its own.
+    #
+    # It needs no account either. `provision.sh` writes a launch daemon into
+    # the guest disk, the daemon runs the control at boot and stops the guest,
+    # and the answer comes back off the same disk. The setup assistant never
+    # appears, so this control needs nobody to answer a window.
+    MACOS_GUEST=$ROOT/target/vm/macos/image
+    machine_guest_macos() {
+        cargo build --quiet --example machine -p fidelity || return 1
+        "$ROOT/tests/platform/vm/macos/provision.sh" "$MACOS_GUEST" \
+            "$ROOT/target/debug/examples/machine" > /dev/null || return 1
+        "$ROOT/target/vm/macos/guest" run "$MACOS_GUEST" > /dev/null 2>&1 || return 1
+        "$ROOT/tests/platform/vm/macos/provision.sh" "$MACOS_GUEST" --read |
+            grep 'machine_host: Medium'
+    }
+
     run macOS cost-macos cargo run --release --quiet --example cost -p fidelity-probe-apple
+    run macOS machine-hardware-macos machine_hardware_macos
+    if [ -f "$MACOS_GUEST/disk.img" ]; then
+        run macOS machine-guest-macos machine_guest_macos
+    else
+        skip macOS machine-guest-macos \
+            "no macOS guest image. Build one with: tests/platform/controls/vm.sh macos build"
+    fi
+    run macOS identity-adhoc-macos identity_adhoc_macos
+    run macOS identity-clean-macos identity_clean_macos
+    run macOS identity-repackaged-macos identity_repackaged_macos
+    run macOS identity-pinned-other-macos identity_pinned_other_macos
     run macOS baseline-hostile baseline_hostile
     refute macOS baseline-clean 'no code arrived after start' baseline_clean
     run macOS tracer-clean tracer_clean
@@ -330,27 +546,107 @@ if [ "$(uname -s)" = Darwin ]; then
     run macOS legitimate-plugin legitimate_plugin
     refute macOS legitimate-cached 'no code arrived after start' legitimate_cached
 else
-    for control in cost-macos baseline-hostile baseline-clean \
+    for control in cost-macos machine-hardware-macos machine-guest-macos \
+        identity-adhoc-macos identity-clean-macos \
+        identity-repackaged-macos identity-pinned-other-macos \
+        baseline-hostile baseline-clean \
         tracer-clean tracer-at-start tracer-attaches \
         plugin-load legitimate-plugin legitimate-cached; do
         skip macOS "$control" "this machine does not run macOS"
     done
 fi
 
+# ------------------------------------------------- macOS runs on ARM64 alone
+#
+# No x86_64 macOS control runs here, and that is a scope decision. Apple
+# Silicon runs an x86_64 build under Rosetta, so seven controls did run and
+# pass on 2026-08-18. The supported-targets table in
+# `docs/plan/04-detectors-and-platforms.md` now names ARM64 alone for macOS,
+# because no Intel Mac is in scope, and a control that carries no promise is
+# a control that nobody has to keep working.
 # -------------------------------------------------------------------------- iOS
 
 SIMULATOR=$(xcrun simctl list devices 2>/dev/null | awk '/Booted/ {print $(NF-1)}' | tr -d '()' | head -1)
 if [ -n "$SIMULATOR" ]; then
     ios() {
         env FIDELITY_IOS_SIM="$SIMULATOR" \
-            CARGO_TARGET_AARCH64_APPLE_IOS_SIM_RUNNER="$ROOT/evidence/controls/run-ios.sh" \
+            CARGO_TARGET_AARCH64_APPLE_IOS_SIM_RUNNER="$ROOT/tests/platform/controls/run-ios.sh" \
             cargo "$@" --target aarch64-apple-ios-sim
     }
+    # Builds one example for the simulator, and prints where it landed.
+    sim_build() {
+        cargo build --quiet --example "$1" -p fidelity \
+            --target aarch64-apple-ios-sim || return 1
+        printf '%s\n' "$ROOT/target/aarch64-apple-ios-sim/debug/examples/$1"
+    }
+
+    # Runs one example inside the simulator.
+    sim_run() {
+        binary=$(sim_build "$1") || return 1
+        shift
+        xcrun simctl spawn "$SIMULATOR" "$binary" "$@"
+    }
+
+    # The identity pair. Cargo signs a local build ad hoc, and an ad-hoc
+    # signature names no team, so a pinned team reports and an absent one
+    # accepts. Apple refuses to launch a self-signed image that carries the
+    # team entitlement, so the clean half of the positive route needs a
+    # provisioned build. The gaps table in README.md states that.
+    identity_clean_ios() { sim_run identity | grep 'protected operation: allowed'; }
+    identity_pinned_team_ios() {
+        sim_run identity ABCDE12345 | grep 'the running image names none'
+    }
+
+    # The tracer set, in the same three shapes as macOS, Linux, and Windows.
+    # `lldb` launches a simulator binary by itself, and the process it makes is
+    # an ordinary process of this machine, so `lldb -p` reaches it as well.
+    tracer_clean_ios() { sim_run tracer | grep 'tracer_present: clean'; }
+    tracer_at_start_ios() {
+        binary=$(sim_build tracer) || return 1
+        lldb -b -o run -- "$binary" | grep 'protected operation: denied'
+    }
+    tracer_attaches_ios() {
+        binary=$(sim_build attach) || return 1
+        printf '#!/bin/sh\nexec xcrun simctl spawn %s %s\n' \
+            "$SIMULATOR" "$binary" > "$OUT/ios-subject" || return 1
+        chmod +x "$OUT/ios-subject" || return 1
+        "$ROOT/tests/platform/controls/trace-after-start.sh" "$OUT/ios-subject" lldb -p
+    }
+
+    # The runtime-baseline pair. `simctl spawn` gives a variable to the child
+    # under the `SIMCTL_CHILD_` prefix only. A plain `DYLD_INSERT_LIBRARIES`
+    # reaches nothing, and the run then reports a clean result that measured no
+    # agent at all, which reads exactly like a passing control. Measured on
+    # 2026-08-18.
+    late_ios() {
+        sdk=$(xcrun --sdk iphonesimulator --show-sdk-path) || return 1
+        clang -dynamiclib -target arm64-apple-ios17.0-simulator -isysroot "$sdk" \
+            -o "$OUT/delayed-ios.dylib" "$ROOT/tests/platform/controls/delayed.c" || return 1
+        binary=$(sim_build late) || return 1
+        env "$@" xcrun simctl spawn "$SIMULATOR" "$binary"
+    }
+    baseline_hostile_ios() {
+        late_ios SIMCTL_CHILD_DYLD_INSERT_LIBRARIES="$OUT/delayed-ios.dylib"
+    }
+    baseline_clean_ios() { late_ios SIMCTL_CHILD_DYLD_INSERT_LIBRARIES=; }
+
     run iOS ios-probe-tests ios test -p fidelity-probe-apple
     run iOS cost-ios ios run --release --quiet --example cost -p fidelity-probe-apple
+    run iOS identity-clean-ios identity_clean_ios
+    run iOS identity-pinned-team-ios identity_pinned_team_ios
+    run iOS tracer-clean-ios tracer_clean_ios
+    run iOS tracer-at-start-ios tracer_at_start_ios
+    run iOS tracer-attaches-ios tracer_attaches_ios
+    run iOS baseline-hostile-ios baseline_hostile_ios
+    refute iOS baseline-clean-ios 'no code arrived after start' baseline_clean_ios
 else
-    skip iOS ios-probe-tests "no simulator is booted: xcrun simctl boot \"iPhone 16 Pro\""
-    skip iOS cost-ios "no simulator is booted"
+    for control in ios-probe-tests cost-ios \
+        identity-clean-ios identity-pinned-team-ios \
+        tracer-clean-ios tracer-at-start-ios tracer-attaches-ios \
+        baseline-hostile-ios baseline-clean-ios; do
+        skip iOS "$control" \
+            "no simulator is booted: xcrun simctl boot \"iPhone 16 Pro\""
+    done
 fi
 
 # ------------------------------------------------------------------------ Linux
@@ -380,10 +676,10 @@ if [ "$(uname -s)" = Linux ]; then
                    CARGO_TARGET_DIR=/var/tmp/target &&
             $*"
     }
-elif "$ROOT/evidence/controls/vm.sh" linux status > /dev/null 2>&1; then
+elif "$ROOT/tests/platform/controls/vm.sh" linux status > /dev/null 2>&1; then
     LINUX_HOW="in the guest"
     linux() {
-        "$ROOT/evidence/controls/vm.sh" linux run "cd /work &&
+        "$ROOT/tests/platform/controls/vm.sh" linux run "cd /work &&
             . \$HOME/.cargo/env &&
             export FIDELITY_BUILD_SEED=test FIDELITY_CODE_IDENTITY=none \
                    CARGO_TARGET_DIR=/var/tmp/target &&
@@ -400,12 +696,12 @@ if [ -n "$LINUX_HOW" ]; then
             grep 'unaccounted_code: clean'
     }
     inject_hostile() {
-        linux 'cc -shared -fPIC -o /tmp/agent.so evidence/controls/agent.c &&
+        linux 'cc -shared -fPIC -o /tmp/agent.so tests/platform/controls/agent.c &&
             LD_PRELOAD=/tmp/agent.so cargo run --quiet --example inject -p fidelity' |
             grep 'unaccounted_code: Medium'
     }
     linux_late() {
-        linux "cc -shared -fPIC -o /tmp/delayed.so evidence/controls/delayed.c -lpthread &&
+        linux "cc -shared -fPIC -o /tmp/delayed.so tests/platform/controls/delayed.c -lpthread &&
             cargo build --quiet --example late -p fidelity &&
             LD_PRELOAD=$1 /var/tmp/target/debug/examples/late"
     }
@@ -419,15 +715,15 @@ if [ -n "$LINUX_HOW" ]; then
             /var/tmp/target/debug/examples/tracer' | grep 'tracer_present: clean'
     }
     tracer_at_start_linux() {
-        linux 'cc -o /tmp/attach evidence/controls/attach.c &&
+        linux 'cc -o /tmp/attach tests/platform/controls/attach.c &&
             cargo build --quiet --example tracer -p fidelity &&
             /tmp/attach /var/tmp/target/debug/examples/tracer' |
             grep 'protected operation: denied'
     }
     tracer_attaches_linux() {
-        linux 'cc -o /tmp/attach evidence/controls/attach.c &&
+        linux 'cc -o /tmp/attach tests/platform/controls/attach.c &&
             cargo build --quiet --example attach -p fidelity &&
-            sh evidence/controls/trace-after-start.sh \
+            sh tests/platform/controls/trace-after-start.sh \
                 /var/tmp/target/debug/examples/attach /tmp/attach'
     }
 
@@ -443,14 +739,14 @@ if [ -n "$LINUX_HOW" ]; then
         cc -shared -fPIC -o /tmp/plug.so /tmp/plug.c'
     plugin_load_linux() {
         counts=$(linux "$PLUG &&
-            cc -o /tmp/plugin-load evidence/controls/plugin-load-linux.c -ldl &&
+            cc -o /tmp/plugin-load tests/platform/controls/plugin-load-linux.c -ldl &&
             /tmp/plugin-load /tmp/plug.so") || return 1
         printf '%s\n' "$counts"
         [ "$(printf '%s\n' "$counts" | grep -c '(+1)')" -eq 2 ]
     }
     legitimate_plugin_linux() {
         linux "$PLUG &&
-            cc -shared -fPIC -o /tmp/legitimate.so evidence/controls/legitimate.c -ldl -lpthread &&
+            cc -shared -fPIC -o /tmp/legitimate.so tests/platform/controls/legitimate.c -ldl -lpthread &&
             cargo build --quiet --example late -p fidelity &&
             LD_PRELOAD=/tmp/legitimate.so FIDELITY_PLUGIN=/tmp/plug.so \
                 /var/tmp/target/debug/examples/late"
@@ -520,7 +816,7 @@ else
         tracer-clean-linux tracer-at-start-linux tracer-attaches-linux \
         plugin-load-linux legitimate-plugin-linux; do
         skip Linux "$control" "this machine runs no Linux, and no guest answers: \
-evidence/controls/vm.sh linux start"
+tests/platform/controls/vm.sh linux start"
     done
 fi
 
@@ -572,12 +868,12 @@ if [ "$WINDOWS" = yes ] && [ -n "$WINDOWS_CC" ]; then
             export FIDELITY_BUILD_SEED=test FIDELITY_CODE_IDENTITY=none &&
             $*"
     }
-elif "$ROOT/evidence/controls/vm.sh" windows status > /dev/null 2>&1; then
+elif "$ROOT/tests/platform/controls/vm.sh" windows status > /dev/null 2>&1; then
     WINDOWS_HOW="in the guest"
-    "$ROOT/evidence/controls/vm.sh" windows push > /dev/null 2>&1 ||
+    "$ROOT/tests/platform/controls/vm.sh" windows push > /dev/null 2>&1 ||
         WINDOWS_HOW=''
     windows() {
-        "$ROOT/evidence/controls/vm.sh" windows run "cd /c/work &&
+        "$ROOT/tests/platform/controls/vm.sh" windows run "cd /c/work &&
             export FIDELITY_BUILD_SEED=test FIDELITY_CODE_IDENTITY=none &&
             $*"
     }
@@ -604,14 +900,14 @@ if [ -n "$WINDOWS_HOW" ]; then
     # the guest and nowhere else. A guest throws its overlay away, and a
     # runner would keep the anchor.
     SIGN='powershell -NoProfile -ExecutionPolicy Bypass \
-        -File evidence/controls/sign-windows.ps1 \
+        -File tests/platform/controls/sign-windows.ps1 \
         -Source "$(cygpath -w target/debug/examples/identity.exe)" \
-        -OutDir "$(cygpath -w target/evidence)"'
+        -OutDir "$(cygpath -w target/platform)"'
     identity_clean_windows() {
         windows "cargo build --quiet --example identity -p fidelity &&
             $SIGN &&
-            target/evidence/signed-trusted.exe \
-                \"\$(cat target/evidence/trusted-sha256.txt)\"" |
+            target/platform/signed-trusted.exe \
+                \"\$(cat target/platform/trusted-sha256.txt)\"" |
             grep 'protected operation: allowed'
     }
     # The image carries a signature that validates, and the host pinned
@@ -619,8 +915,8 @@ if [ -n "$WINDOWS_HOW" ]; then
     identity_other_signer_windows() {
         windows "cargo build --quiet --example identity -p fidelity &&
             $SIGN &&
-            target/evidence/signed-trusted.exe \
-                \"\$(cat target/evidence/untrusted-sha256.txt)\"" |
+            target/platform/signed-trusted.exe \
+                \"\$(cat target/platform/untrusted-sha256.txt)\"" |
             grep 'expected_identity: High'
     }
     # The image carries a signature that nothing anchors. Both tiers report,
@@ -629,8 +925,8 @@ if [ -n "$WINDOWS_HOW" ]; then
     identity_untrusted_windows() {
         windows "cargo build --quiet --example identity -p fidelity &&
             $SIGN &&
-            target/evidence/signed-untrusted.exe \
-                \"\$(cat target/evidence/trusted-sha256.txt)\"" |
+            target/platform/signed-untrusted.exe \
+                \"\$(cat target/platform/trusted-sha256.txt)\"" |
             grep 'did not validate'
     }
 
@@ -643,8 +939,8 @@ if [ -n "$WINDOWS_HOW" ]; then
     # which is what a preloaded library gives on Linux.
     inject_hostile_windows() {
         windows 'cargo build --quiet --example inject -p fidelity &&
-            sh evidence/controls/build-control.sh inject-windows &&
-            target/evidence/inject-windows.exe \
+            sh tests/platform/controls/build-control.sh inject-windows &&
+            target/platform/inject-windows.exe \
                 "$(cygpath -w target/debug/examples/inject.exe)"' |
             grep 'unaccounted_code: Medium'
     }
@@ -653,10 +949,10 @@ if [ -n "$WINDOWS_HOW" ]; then
     # already captured its baseline, so only the worker can catch it.
     baseline_hostile_windows() {
         windows 'cargo build --quiet --example late -p fidelity &&
-            sh evidence/controls/build-control.sh inject-windows &&
-            sh evidence/controls/trace-after-start.sh \
+            sh tests/platform/controls/build-control.sh inject-windows &&
+            sh tests/platform/controls/trace-after-start.sh \
                 target/debug/examples/late.exe \
-                target/evidence/inject-windows.exe'
+                target/platform/inject-windows.exe'
     }
     baseline_clean_windows() {
         windows 'cargo build --quiet --example late -p fidelity &&
@@ -671,17 +967,58 @@ if [ -n "$WINDOWS_HOW" ]; then
     }
     tracer_at_start_windows() {
         windows 'cargo build --quiet --example tracer -p fidelity &&
-            sh evidence/controls/build-control.sh attach-windows &&
-            target/evidence/attach-windows.exe \
+            sh tests/platform/controls/build-control.sh attach-windows &&
+            target/platform/attach-windows.exe \
                 "$(cygpath -w target/debug/examples/tracer.exe)"' |
             grep 'protected operation: denied'
     }
     tracer_attaches_windows() {
         windows 'cargo build --quiet --example attach -p fidelity &&
-            sh evidence/controls/build-control.sh attach-windows &&
-            sh evidence/controls/trace-after-start.sh \
+            sh tests/platform/controls/build-control.sh attach-windows &&
+            sh tests/platform/controls/trace-after-start.sh \
                 target/debug/examples/attach.exe \
-                target/evidence/attach-windows.exe'
+                target/platform/attach-windows.exe'
+    }
+
+    # The second architecture of Windows. An ARM64 Windows runs an x64 image
+    # under its own emulation, so these four controls need no second machine.
+    # The emulator generates code, and that is what makes them worth running:
+    # `unaccounted_code` asks whether a file backs every executable region, and
+    # a translator answers no. Measured on 2026-08-18.
+    windows_x86() {
+        windows "rustup target add x86_64-pc-windows-msvc > /dev/null 2>&1
+            $*"
+    }
+    cost_windows_x86() {
+        windows_x86 'cargo run --release --quiet --example cost \
+            -p fidelity-probe-windows --target x86_64-pc-windows-msvc'
+    }
+
+    # A clean x64 process, which reports. The emulator maps about 1 MB of
+    # executable memory with no file behind it, and the rule cannot separate
+    # that from a manual mapper. This is the Windows half of the same limit
+    # that a warmed Node process states on Linux.
+    inject_emulated_x86() {
+        windows_x86 'cargo build --quiet --example tracer -p fidelity \
+            --target x86_64-pc-windows-msvc &&
+            target/x86_64-pc-windows-msvc/debug/examples/tracer.exe' |
+            grep 'unaccounted_code: Medium'
+    }
+
+    # The runtime baseline stays clean in the same process, because the
+    # emulator maps its cache before `start()` reads the baseline and adds no
+    # region afterwards. The two detectors answer differently here, and that
+    # pair is the whole measurement.
+    baseline_clean_x86_windows() {
+        windows_x86 'cargo build --quiet --example late -p fidelity \
+            --target x86_64-pc-windows-msvc &&
+            target/x86_64-pc-windows-msvc/debug/examples/late.exe'
+    }
+    tracer_clean_x86_windows() {
+        windows_x86 'cargo build --quiet --example tracer -p fidelity \
+            --target x86_64-pc-windows-msvc &&
+            target/x86_64-pc-windows-msvc/debug/examples/tracer.exe' |
+            grep 'tracer_present: clean'
     }
 
     run Windows windows-probe-tests windows_probe_tests
@@ -696,7 +1033,7 @@ if [ -n "$WINDOWS_HOW" ]; then
         for control in identity-clean-windows identity-other-signer-windows \
             identity-untrusted-windows; do
             skip Windows "$control" "this arm anchors a certificate on the machine, so it \
-takes the guest: evidence/controls/vm.sh windows start"
+takes the guest: tests/platform/controls/vm.sh windows start"
         done
     fi
     run Windows inject-clean-windows inject_clean_windows
@@ -707,19 +1044,26 @@ takes the guest: evidence/controls/vm.sh windows start"
     run Windows tracer-clean-windows tracer_clean_windows
     run Windows tracer-at-start-windows tracer_at_start_windows
     run Windows tracer-attaches-windows tracer_attaches_windows
+    run Windows cost-windows-x86 cost_windows_x86
+    run Windows inject-emulated-x86 inject_emulated_x86
+    refute Windows baseline-clean-x86-windows 'no code arrived after start' \
+        baseline_clean_x86_windows
+    run Windows tracer-clean-x86-windows tracer_clean_x86_windows
 else
     if [ "$WINDOWS" = yes ]; then
         WHY="no cl, clang, or gcc on the path, so no control compiles"
     else
         WHY="this machine runs no Windows, and no guest answers: \
-evidence/controls/vm.sh windows start"
+tests/platform/controls/vm.sh windows start"
     fi
     for control in windows-probe-tests cost-windows \
         identity-clean-windows identity-other-signer-windows \
         identity-untrusted-windows \
         inject-clean-windows inject-hostile-windows \
         baseline-hostile-windows baseline-clean-windows \
-        tracer-clean-windows tracer-at-start-windows tracer-attaches-windows; do
+        tracer-clean-windows tracer-at-start-windows tracer-attaches-windows \
+        cost-windows-x86 inject-emulated-x86 baseline-clean-x86-windows \
+        tracer-clean-x86-windows; do
         skip Windows "$control" "$WHY"
     done
 fi
@@ -733,19 +1077,27 @@ fi
 NDK_CC=$(ls "${ANDROID_HOME:-}"/ndk/*/toolchains/llvm/prebuilt/*/bin/aarch64-linux-android*-clang \
     2>/dev/null | tail -1)
 
+# Every control that this section runs. Both skip arms below read this one
+# list, because a control that a skip arm forgets leaves no row at all, and a
+# record that never mentions it reads as complete coverage.
+ANDROID_CONTROLS="android-probe-tests cost-android android-instrumented
+    android-repackage tracer-clean-android tracer-at-start-android
+    tracer-attaches-android baseline-clean-android baseline-hostile-android
+    inject-clean-android inject-hostile-android"
+
 if [ -z "$(adb devices 2>/dev/null | awk 'NR > 1 && $2 == "device" { print $1 }')" ]; then
-    for control in android-probe-tests cost-android android-instrumented android-repackage; do
+    for control in $ANDROID_CONTROLS; do
         skip Android "$control" "no device answers adb"
     done
 elif [ -z "$NDK_CC" ]; then
-    for control in android-probe-tests cost-android android-instrumented android-repackage; do
+    for control in $ANDROID_CONTROLS; do
         skip Android "$control" "no NDK linker under \$ANDROID_HOME/ndk"
     done
 else
     android() {
         env CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDK_CC" \
             CC_aarch64_linux_android="$NDK_CC" \
-            CARGO_TARGET_AARCH64_LINUX_ANDROID_RUNNER="$ROOT/evidence/controls/run-android.sh" \
+            CARGO_TARGET_AARCH64_LINUX_ANDROID_RUNNER="$ROOT/tests/platform/controls/run-android.sh" \
             cargo "$@" --target aarch64-linux-android
     }
     instrumented() {
@@ -754,12 +1106,88 @@ else
     repackage() {
         instrumented assembleDebugAndroidTest > /dev/null 2>&1 || return 1
         (cd "$ROOT/crates/probe/fidelity-probe-android/android" &&
-            "$ROOT/evidence/controls/repackage-android.sh")
+            "$ROOT/tests/platform/controls/repackage-android.sh")
     }
+    # The detector controls. Until 2026-08-18 the coverage table claimed three
+    # Android detectors that no control here reproduced, and its tracer row
+    # named a physical device that this machine has never held. These run the
+    # same examples and the same agents that Linux runs, because Android keeps
+    # the Linux process filesystem and the Linux loader.
+    #
+    # Every control below pushes what it needs. A device name differs from the
+    # source name where the two would collide: the Rust `attach` example is the
+    # subject, and `attach.c` is the tracer that attaches to it.
+    android_push() {
+        adb push "$1" "/data/local/tmp/$2" > /dev/null 2>&1 &&
+            adb shell chmod 755 "/data/local/tmp/$2"
+    }
+    android_example() {
+        android build --quiet --example "$1" -p fidelity > /dev/null 2>&1 &&
+            android_push "$ROOT/target/aarch64-linux-android/debug/examples/$1" "$2"
+    }
+    android_tracer_tool() {
+        "$NDK_CC" -o "$OUT/attach-android" "$ROOT/tests/platform/controls/attach.c" &&
+            android_push "$OUT/attach-android" attach-tool
+    }
+    # pthread is inside the Android libc, so neither agent needs `-lpthread`.
+    android_agent() {
+        "$NDK_CC" -shared -fPIC -o "$OUT/$1-android.so" \
+            "$ROOT/tests/platform/controls/$1.c" &&
+            android_push "$OUT/$1-android.so" "$1.so"
+    }
+
+    tracer_clean_android() {
+        android_example tracer tracer &&
+            adb shell /data/local/tmp/tracer | grep 'tracer_present: clean'
+    }
+    tracer_at_start_android() {
+        android_example tracer tracer && android_tracer_tool &&
+            adb shell '/data/local/tmp/attach-tool /data/local/tmp/tracer' |
+            grep 'protected operation: denied'
+    }
+    tracer_attaches_android() {
+        android_example attach subject && android_tracer_tool &&
+            android_push "$ROOT/tests/platform/controls/trace-after-start.sh" \
+                trace-after-start.sh &&
+            # One line. `adb shell` passes a newline through, and the shell on
+            # the device reads it as the end of the command, so a split here
+            # runs the script with no argument and then runs the subject alone.
+            adb shell 'sh /data/local/tmp/trace-after-start.sh /data/local/tmp/subject /data/local/tmp/attach-tool'
+    }
+
+    android_late() {
+        android_example late late &&
+            adb shell "cd /data/local/tmp && LD_PRELOAD=$1 ./late"
+    }
+    baseline_hostile_android() {
+        android_agent delayed && android_late /data/local/tmp/delayed.so
+    }
+    baseline_clean_android() { android_late ''; }
+
+    inject_clean_android() {
+        android_example inject inject &&
+            adb shell /data/local/tmp/inject | grep 'unaccounted_code: clean'
+    }
+    inject_hostile_android() {
+        android_example inject inject && android_agent agent &&
+            adb shell 'LD_PRELOAD=/data/local/tmp/agent.so /data/local/tmp/inject' |
+            grep 'unaccounted_code: Medium'
+    }
+
     run Android android-probe-tests android test -p fidelity-probe-android
     run Android cost-android android run --release --quiet --example cost -p fidelity-probe-android
     run Android android-instrumented instrumented connectedDebugAndroidTest
     run Android android-repackage repackage
+    run Android tracer-clean-android tracer_clean_android
+    run Android tracer-at-start-android tracer_at_start_android
+    run Android tracer-attaches-android tracer_attaches_android
+    # The clean arm exits with a failure code by design, because the example
+    # reports success when the worker finds the change. `refute` reads the
+    # answer rather than the status, and Linux and iOS take the same route.
+    refute Android baseline-clean-android 'no code arrived after start' baseline_clean_android
+    run Android baseline-hostile-android baseline_hostile_android
+    run Android inject-clean-android inject_clean_android
+    run Android inject-hostile-android inject_hostile_android
 fi
 
 # The image-identity mechanism. It signs a small archive and reads the
@@ -767,7 +1195,7 @@ fi
 # it needs the build tools and no device at all. The two must agree, because
 # the walk is the route the probe takes and the keystore is the truth.
 if [ -d "${ANDROID_HOME:-}/build-tools" ] && command -v python3 > /dev/null 2>&1; then
-    run Android android-identity-mechanism "$ROOT/evidence/controls/make-apk.sh"
+    run Android android-identity-mechanism "$ROOT/tests/platform/controls/make-apk.sh"
 else
     skip Android android-identity-mechanism "no Android build tools, or no python3"
 fi

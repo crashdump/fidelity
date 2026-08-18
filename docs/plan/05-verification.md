@@ -9,8 +9,8 @@ packaged mobile application. The [security model](02-security-model.md) assigns 
 `fidelity-testkit` is internal and makes no promise to a consumer. A host therefore proves its
 `ensure_allowed()` placement against a real hostile environment, not against an injected latch.
 
-Evidence is a generated, machine-readable record that lives with the tests. No size rule applies to
-it, and nobody compresses it. For each detector and platform pair, Fidelity records:
+The test record is generated and machine-readable, and it lives with the tests. No size rule
+applies to it, and nobody compresses it. For each detector and platform pair, Fidelity records:
 
 - a clean control and its false-positive observations;
 - a representative hostile control;
@@ -29,7 +29,7 @@ representative real hostile test must exercise the backend mechanism.
 | Unsafe wrappers | the address and thread sanitizers over the whole workspace, and Miri over the crates that forbid unsafe code | sanitizers every change, Miri scheduled |
 | Engine integration | initial-scan ordering, worker lifecycle, isolated test runtimes | every change |
 | Platform clean | supported clean configurations, enterprise and security-tool compatibility, API failure paths | pull request where deterministic, otherwise scheduled |
-| Platform hostile | debugger, injection, hooking, root, jailbreak, tamper, emulator, and VM controls as applicable | release evidence; deterministic cases on pull requests |
+| Platform hostile | debugger, injection, hooking, root, jailbreak, tamper, emulator, and VM controls as applicable | release tests; deterministic cases on pull requests |
 | Consumer | packaged app behavior, protected operation placement, MASTG tests | consuming application |
 
 A test that stops the process runs in a child process. Callback tests prove that the runtime latches
@@ -57,7 +57,7 @@ guarded read has no error path, so every read would otherwise return a wrong val
 nothing. The test covers an unsigned image, an image signed ad hoc, a platform without the
 capability, and a failed read.
 
-Release evidence adds an extraction test, and it records a limit rather than a defense. Both key
+Release tests adds an extraction test, and it records a limit rather than a defense. Both key
 inputs ship inside the artifact. The salt sits beside the ciphertext, and the operating system
 reports the code identity to anybody who asks. One extractor that knows the derivation therefore
 reads every guarded constant, in every build, offline. The test records that ceiling. It then
@@ -72,16 +72,31 @@ The tracer detector needs three controls on each platform: a clean run, a run th
 debugger, and a debugger that attaches after start. The third is the realistic attack, and only the
 worker can catch it. Record the time it took, because that time is what a host is exposed for.
 
-Image identity needs five controls on each platform: a distributed image, a locally built image, a
-repackaged image, an image that a second certificate of the same signer signed, and a distributed
-image against an identity that the host pinned to another signer. The fourth must stay clean and the
-fifth must report, because that pair proves that the two tiers answer different questions.
+Image identity needs five controls where the host pins a signer: a distributed image, a locally
+built
+image, a repackaged image, an image that a second certificate of the same signer signed, and a
+distributed image against an identity that the host pinned to another signer. The fourth must stay
+clean and the fifth must report, because that pair proves that the two tiers answer different
+questions. Windows, macOS, iOS, and Android pin a signer.
+
+A platform that pins content rather than a signer needs four, and the fourth arm has no meaning
+there. Linux pins a content digest, so a second certificate of one signer names nothing, and the
+remaining four are the clean pin, the repackaged image, the pin to another value, and the state of
+the platform trust tier. A control that a platform cannot express is a gap that the record states,
+and never a control that a release counts as absent.
 
 Architecture tests keep the workspace in the shape that [delivery](06-delivery.md) states. They
 prove that a probe crate imports no detector and no engine, that `unsafe` stays inside a `sys`
 module, that no crate takes a remote-network dependency, that no probe declares a feature, and that
 only the platform seam carries a target condition. Each rule must fail when a change breaks it, so
 each one is checked against a deliberate violation before it lands.
+
+A surface test holds the public items of the `fidelity` crate and of the types it re-exports, as a
+snapshot that the repository carries. The gate fails when the code and the snapshot disagree, so an
+addition updates the snapshot in the same change, and a removal or a rename states itself in the
+changelog. The snapshot reads Rust as text, so it holds a declaration and not a resolved type, and
+it reads no `cfg`. One macro writes six public methods, so a second rule proves that its body still
+generates the signature that the snapshot expands.
 
 Capability tests keep the [coverage matrix](06-delivery.md#capability-coverage) true. A trait that
 defaults to `Unsupported` lets a gap stay silent, so the table states the intent and a test compares
@@ -93,16 +108,19 @@ it against the code. The rules prove that:
 - a detector reads every capability that reports a finding.
 
 Miri cannot cross a foreign call, so it never reaches a probe crate, and the sanitizers are what
-cover the `unsafe` there. Run both with `evidence/controls/run-sanitizers.sh`. Exclude a doc-test:
+cover the `unsafe` there. Run both with `tests/platform/controls/run-sanitizers.sh`. Exclude a
+doc-test:
 rustdoc links one without the sanitizer runtime, so every doc-test fails to link and none of those
 failures describes this workspace.
 
-Evidence tests bind the record in `evidence/` to the same matrix, in the other direction. A `yes`
-cell claims that a platform answers, and only real clean and hostile evidence makes that claim
-legitimate, so the record must hold a row for every `yes` cell. The rules also prove that a row
+`test_record.rs` binds the record in `tests/platform/` to the same matrix, in the other
+direction. A `yes` cell claims that a platform answers, and only a real clean control and a real
+hostile control make that claim legitimate, so the record holds a row for every `yes` cell. The
+rules also prove that a row
 names a detector that exists, a system that the matrix holds, and a control file that is present.
-They do not prove that a row is true. `evidence/run.sh` runs every control that a machine can reach
-and generates the record, and one rule proves that the harness names every control that exists. A
+They do not prove that a row is true. `tests/platform/run.sh` runs every control that a machine
+can reach and generates the record, and one rule proves that the harness names every control that
+exists. A
 control that no machine here can reach gets a row that says so, because a record of what passed
 alone reads as complete coverage. A person still judges what a hostile control produced.
 
@@ -113,16 +131,16 @@ root, jailbreak, debugger, reverse-engineering tool, and runtime-hook scenarios 
 Fidelity detector.
 
 The verification metadata pins the mapping to a MASTG version. Review it when OWASP changes an
-identifier or the test content. A deprecated MASTG test can inform a migration. It is not current
-release evidence.
+identifier or the test content. A deprecated MASTG test can inform a migration. It is not a
+current release test.
 
-## Release evidence
+## Release tests
 
 A release candidate must show:
 
 - the workspace, examples, rustdoc, formatting, lints, and deterministic tests pass;
 - every supported platform and architecture builds with its intended toolchain;
-- real clean and hostile evidence exists for each enabled detector;
+- a real clean control and a real hostile control exist for each enabled detector;
 - measured overhead per platform meets the
   [performance budget](07-state-and-budgets.md#performance-budget);
 - Fidelity reports an unsupported capability accurately, and never stubs it as a success;
@@ -132,7 +150,7 @@ A release candidate must show:
 - the change introduced no remote network path, and no accidental Tauri command surface.
 
 Rooted devices, jailbroken devices, and physical mobile hardware may run in a controlled release lab
-instead of on every pull request. Missing release evidence still blocks the platform from the
+instead of on every pull request. A missing release test still blocks the platform from the
 implemented label.
 
 ## Standards traceability

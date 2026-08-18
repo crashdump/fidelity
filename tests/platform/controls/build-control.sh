@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds one Windows control from `evidence/controls/<name>.c`.
+# Builds one Windows control from `tests/platform/controls/<name>.c`.
 #
 #     build-control.sh <name>
 #
@@ -17,8 +17,8 @@
 # reaches a compiler goes through `cygpath`, which ships with the shell.
 set -eu
 
-ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
-OUT=$ROOT/target/evidence
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
+OUT=$ROOT/target/platform
 mkdir -p "$OUT"
 
 [ "$#" -eq 1 ] || { echo "usage: build-control.sh <name>" >&2; exit 2; }
@@ -33,7 +33,7 @@ for candidate in cl clang gcc; do
 done
 [ -n "$cc" ] || { echo "no cl, clang, or gcc on the path" >&2; exit 1; }
 
-source=$(cygpath -w "$ROOT/evidence/controls/$name.c")
+source=$(cygpath -w "$ROOT/tests/platform/controls/$name.c")
 binary=$(cygpath -w "$OUT/$name.exe")
 
 # `cl` takes an option after a dash as well as after a slash, and this uses

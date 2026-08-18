@@ -2,7 +2,7 @@
 # Builds the two files that the Packer build attaches but does not create:
 # the answer disk, and a fresh firmware variable store.
 #
-#     evidence/vm/windows/make-answers.sh
+#     tests/platform/vm/windows/make-answers.sh
 #
 # The answer disk is a small FAT volume on a USB device, and it carries four
 # things: the answer file, the first-logon script, the virtio network driver,
@@ -20,12 +20,12 @@
 # path that a fresh install never takes.
 set -eu
 
-ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
-HERE=$ROOT/evidence/vm/windows
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../../../.." && pwd)
+HERE=$ROOT/tests/platform/vm/windows
 OUT=$ROOT/target/vm/windows
 
 "$HERE/fetch-drivers.sh"
-"$ROOT/evidence/vm/make-key.sh"
+"$ROOT/tests/platform/vm/make-key.sh"
 
 work=$OUT/answers
 rm -rf "$work" "$OUT/answers.dmg"
@@ -74,6 +74,6 @@ if [ -n "$mount" ]; then
     hdiutil detach "$mount" -quiet 2> /dev/null || true
 fi
 
-cp "$ROOT/evidence/vm/efivars-template.fd" "$OUT/vars.fd"
+cp "$ROOT/tests/platform/vm/efivars-template.fd" "$OUT/vars.fd"
 
 echo "wrote $OUT/answers.dmg and a blank $OUT/vars.fd"

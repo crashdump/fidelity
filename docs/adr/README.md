@@ -12,5 +12,5 @@ Accepted decisions:
 - [ADR-0008: Keep every capability trait object safe](0008-object-safe-capability-traits.md)
 
 ADR-0001's probe and detector separation, ADR-0002's strength model, and ADR-0006's response
-contract are v1 invariants. To change one, supersede the ADR and supply clean and hostile evidence.
+contract are v1 invariants. To change one, supersede the ADR and supply clean and hostile controls.
 Do not relax one quietly to accommodate a difficult detector.

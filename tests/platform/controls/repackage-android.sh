@@ -12,7 +12,7 @@
 #
 #     cd crates/probe/fidelity-probe-android/android
 #     ./gradlew assembleDebugAndroidTest
-#     ../../../../evidence/controls/repackage-android.sh
+#     ../../../../tests/platform/controls/repackage-android.sh
 #
 # It leaves the original archive installed, so the Gradle suite still runs
 # afterwards.

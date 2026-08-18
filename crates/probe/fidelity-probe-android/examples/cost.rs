@@ -1,10 +1,10 @@
 //! Measures what each capability read costs on Android.
 //!
 //! Run it in release mode, with the device runner that
-//! [the evidence record](../../../../evidence/README.md) sets up:
+//! [the test record](../../../../tests/platform/README.md) sets up:
 //!
 //! ```text
-//! export CARGO_TARGET_AARCH64_LINUX_ANDROID_RUNNER=$PWD/evidence/controls/run-android.sh
+//! export CARGO_TARGET_AARCH64_LINUX_ANDROID_RUNNER=$PWD/tests/platform/controls/run-android.sh
 //! cargo run --release --example cost -p fidelity-probe-android \
 //!     --target aarch64-linux-android
 //! ```
@@ -14,7 +14,7 @@
 //! there. An application process pays the archive read, and the instrumented
 //! harness is what measures that.
 
-/// The measurement loop, which the three probe examples share.
+/// The measurement loop, which the four probe examples share.
 #[cfg(target_os = "android")]
 #[path = "../../measure.rs"]
 mod measure;
