@@ -45,11 +45,19 @@ fidelity-probe-windows = { path = "crates/probe/fidelity-probe-windows", version
 fidelity-testkit = { path = "crates/fidelity-testkit" }
 fidelity-types = { path = "crates/fidelity-types", version = "0.1.0" }
 
-# The one optional dependency in the workspace, and it is off by default, so a
-# default build still resolves to no external crate at all. `docs/plan/07-
-# state-and-budgets.md` states the feature, and the locked decision index in
-# `docs/plan/README.md` settles it.
+# The two optional dependencies in the workspace, and both are off by default,
+# so a default build still resolves to no external crate at all. A test in
+# `crates/fidelity/tests/architecture.rs` holds that property.
+#
+# `docs/plan/07-state-and-budgets.md` states the `serde` feature, and the locked
+# decision index in `docs/plan/README.md` settles it.
 serde = { version = "1", default-features = false, features = ["alloc", "derive"] }
+
+# `tracing` carries the diagnostics that the same index asks for under I/O.
+# The default features add `tracing-attributes`, which pulls a proc-macro chain
+# through `syn`, and this workspace writes no instrumented function, so the
+# feature list holds `std` alone. See `docs/plan/03-runtime-and-api.md`.
+tracing = { version = "0.1", default-features = false, features = ["std"] }
 
 [workspace.lints.rust]
 missing_docs = "deny"

@@ -13,6 +13,13 @@ categories = ["security"]
 fidelity-core.workspace = true
 fidelity-detect.workspace = true
 fidelity-types.workspace = true
+tracing = { workspace = true, optional = true }
+
+[features]
+# Off by default, so a default build resolves to no external crate. The engine
+# owns the runtime work, so it owns every event. Fidelity installs no
+# subscriber, and a host that wants the events selects one of its own.
+tracing = ["dep:tracing"]
 
 [dev-dependencies]
 fidelity-testkit.workspace = true

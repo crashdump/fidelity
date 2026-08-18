@@ -8,18 +8,21 @@ license.workspace = true
 repository.workspace = true
 keywords.workspace = true
 categories = ["security", "os"]
-# These three tests read the workspace around them, so they prove a rule that
+# These four tests read the workspace around them, so they prove a rule that
 # `docs/` states about the shape of the repository. A published crate holds no
-# such workspace, and the tests would fail for a reader who unpacks it.
+# such workspace, and the tests would fail for a reader who unpacks it. The
+# snapshot goes with the test that reads it.
 exclude = [
     "tests/architecture.rs",
     "tests/capability_matrix.rs",
-    "tests/evidence.rs",
+    "tests/test_record.rs",
+    "tests/public_surface.rs",
+    "tests/public-surface.txt",
 ]
 
 # Cargo selects a probe by the target, so a page built for one target states
 # what that one platform reads. The list gives the reader every platform, and
-# `all-features` documents the `serde` implementations.
+# `all-features` documents the `serde` implementations and the `tracing` events.
 [package.metadata.docs.rs]
 all-features = true
 targets = [
@@ -42,9 +45,11 @@ fidelity-macros.workspace = true
 fidelity-types.workspace = true
 
 [features]
-# Off by default, so a default build resolves to no external crate. The feature
-# forwards to the data model, because that is where the public types live.
+# Both are off by default, so a default build resolves to no external crate.
+# Each one forwards to the crate that owns the code: the data model holds the
+# public types, and the engine holds the runtime work that reports an event.
 serde = ["fidelity-types/serde"]
+tracing = ["fidelity-engine/tracing"]
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 fidelity-probe-apple.workspace = true

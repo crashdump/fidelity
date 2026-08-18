@@ -13,7 +13,13 @@
 //! no probe crate returns [`StartError::PlatformUnavailable`],
 //! because a backend that reports a clean environment while it examines
 //! nothing is worse than a visible failure. A platform counts as supported
-//! only after its full release evidence exists, and none does yet.
+//! only after its full release tests exists, and none does yet.
+//!
+//! One limit is worth knowing before you ship. An x64 image that runs under
+//! the emulation of an ARM64 Windows reports unaccounted code on every clean
+//! run, because the translator writes code that no file backs. Measured on
+//! 2026-08-18. The test record states the figure, and an ARM64 image on
+//! the same machine reports clean.
 //!
 //! # Shape
 //!
@@ -37,6 +43,16 @@
 //! }
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
+//!
+//! # Features
+//!
+//! Both are off by default, so a default build resolves to no external crate.
+//!
+//! - `serde` implements `Serialize` for the public types, so a host that
+//!   exports a finding chooses its own format.
+//! - `tracing` reports internal events. Each one names the detector, the
+//!   category, the strength, and the action. Fidelity installs no subscriber,
+//!   so the host installs its own and the events go where its own logs go.
 //!
 //! # What the runtime promises
 //!

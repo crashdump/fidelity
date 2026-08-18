@@ -88,9 +88,20 @@ pub fn record(
             let Some(action) = policy.qualifying_action(&finding) else {
                 continue;
             };
+            diagnostic!(
+                detector = finding.detector().name(),
+                category = ?finding.category(),
+                strength = ?finding.strength(),
+                action = ?action,
+                "a detector reported a finding that reaches its threshold"
+            );
             if action == Action::Deny {
                 state.latch(finding.category());
                 denied.push(finding.category());
+                diagnostic!(
+                    category = ?finding.category(),
+                    "the runtime latched a permanent denial, and a latch never clears"
+                );
             }
             qualified.push((finding, action));
         }
@@ -179,10 +190,15 @@ impl Worker {
         // gives it a quality of service, and Android attaches it to the JVM.
         // Both apply to the calling thread, so neither can run at `start()`.
         // A failure degrades the worker and never stops it, because a worker
-        // that refused to run would trade all detection for a preference.
-        // Nothing reads the answer yet: it belongs in a diagnostic message, and
-        // the workspace holds no dependency that emits one.
-        let _setup = self.prepare();
+        // that refused to run would trade all detection for a preference. The
+        // answer reaches no detector and no category, so a diagnostic is the
+        // one thing that reads it.
+        let setup = self.prepare();
+        diagnostic!(setup = ?setup, "the platform prepared the worker thread");
+        // The call above must run whatever the feature says, because Android
+        // attaches this thread to the virtual machine inside it. Only the
+        // answer is a diagnostic, and this reads the binding either way.
+        drop(setup);
 
         // `start()` recorded the initial outcomes and latched every qualifying
         // denial before it returned. The worker applies the remaining actions
@@ -190,6 +206,10 @@ impl Worker {
         // holds a handle.
         self.dispatch(initial);
 
+        diagnostic!(
+            cycle_ms = self.cycle.as_millis(),
+            "the worker runs, and it stops when the process stops"
+        );
         loop {
             let outcomes = self.detectors.scan_all(&*self.environment, now_unix_ms());
             self.apply(outcomes);
@@ -231,8 +251,15 @@ impl Worker {
                 Action::Report | Action::Deny => {}
                 Action::Callback => self.invoke(&finding),
                 // The recorded state is authoritative, and the process stops
-                // without an unwind and without cleanup.
-                Action::Crash => std::process::abort(),
+                // without an unwind and without cleanup. The event goes first,
+                // because nothing after the abort runs.
+                Action::Crash => {
+                    diagnostic!(
+                        detector = finding.detector().name(),
+                        "the host selected Crash for this category, so the process stops now"
+                    );
+                    std::process::abort()
+                }
             }
         }
     }
@@ -248,6 +275,10 @@ impl Worker {
         };
         let result = catch_unwind(AssertUnwindSafe(|| callback(finding)));
         if result.is_err() {
+            diagnostic!(
+                detector = finding.detector().name(),
+                "the host callback panicked, and the worker continues"
+            );
             let health = Outcome::Finding(Finding::new(
                 finding.detector(),
                 SignalStrength::Low,
@@ -284,8 +315,8 @@ mod tests {
     use std::time::Duration;
 
     use fidelity_core::{
-        Baseline, Device, Environment, Identity, IdentityMatch, Injection, Lifecycle, Observation,
-        Tracer, TracerState, WorkerSetup,
+        Baseline, Device, Emulation, Environment, Identity, IdentityMatch, Injection, Lifecycle,
+        Observation, Tracer, TracerState, WorkerSetup,
     };
     use fidelity_detect::{
         Detectors, EXPECTED_IDENTITY, INVENTORY, PLATFORM_TRUST, TRACER_PRESENT,
@@ -523,6 +554,7 @@ mod tests {
     impl Baseline for Counting {}
 
     impl Device for Counting {}
+    impl Emulation for Counting {}
 
     impl Lifecycle for Counting {
         fn prepare_worker(&self) -> WorkerSetup {
@@ -650,5 +682,94 @@ mod tests {
             slot.is_some_and(|slot| slot.strongest().is_some()),
             "the detached tracer must stay in the strongest-ever finding"
         );
+    }
+}
+
+/// Proves that the events reach a subscriber that the host selected.
+///
+/// The rule needs a subscriber, and `tracing-subscriber` is a dependency that
+/// this workspace does not take for one test. So the counter below implements
+/// the trait by hand, which is the same choice that the delivery notes make
+/// about a fake environment. It also states the promise exactly: Fidelity
+/// installs nothing, and the events reach whatever the host installed.
+#[cfg(all(test, feature = "tracing"))]
+mod diagnostics {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    use fidelity_core::{IdentityMatch, Observation};
+    use fidelity_detect::{Detectors, INVENTORY};
+    use fidelity_testkit::FakeEnvironment;
+    use fidelity_types::{
+        Action, BoundedText, Category, Choice, CodeRequirement, ExpectedIdentity, IdentityError,
+        SignalStrength,
+    };
+    use tracing::span::{Attributes, Id, Record};
+    use tracing::{Event, Metadata, Subscriber};
+
+    use super::{Hooks, Worker};
+    use crate::{Policy, State};
+
+    /// How many events this subscriber received.
+    static EVENTS: AtomicUsize = AtomicUsize::new(0);
+
+    /// A subscriber that counts events and reads none of them.
+    #[derive(Debug)]
+    struct Counter;
+
+    impl Subscriber for Counter {
+        fn enabled(&self, _metadata: &Metadata<'_>) -> bool {
+            true
+        }
+
+        fn new_span(&self, _span: &Attributes<'_>) -> Id {
+            Id::from_u64(1)
+        }
+
+        fn record(&self, _span: &Id, _values: &Record<'_>) {}
+
+        fn record_follows_from(&self, _span: &Id, _follows: &Id) {}
+
+        fn event(&self, _event: &Event<'_>) {
+            EVENTS.fetch_add(1, Ordering::Relaxed);
+        }
+
+        fn enter(&self, _span: &Id) {}
+
+        fn exit(&self, _span: &Id) {}
+    }
+
+    #[test]
+    fn a_qualifying_finding_reaches_the_subscriber_that_the_host_installed()
+    -> Result<(), IdentityError> {
+        let before = EVENTS.load(Ordering::Relaxed);
+        let guard = tracing::subscriber::set_default(Counter);
+
+        let environment = FakeEnvironment::new().with_identity_match(Observation::Fact(
+            IdentityMatch::Different {
+                detail: BoundedText::new("the requirement did not match"),
+            },
+        ));
+        let expected = ExpectedIdentity::new()
+            .macos(Choice::Value(CodeRequirement::new("anchor apple generic")?));
+        let mut policy = Policy::new();
+        policy.set(Category::Integrity, Action::Deny, SignalStrength::Low);
+        let state = Arc::new(Mutex::new(State::new(INVENTORY)));
+        Worker::new(
+            Arc::clone(&state),
+            policy,
+            Detectors::new(Some(expected), None),
+            Box::new(environment),
+            None,
+            Hooks::detached(),
+        )
+        .run_once();
+
+        drop(guard);
+        assert!(
+            EVENTS.load(Ordering::Relaxed) > before,
+            "a finding that reaches its threshold must report one event"
+        );
+        Ok(())
     }
 }

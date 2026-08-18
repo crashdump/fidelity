@@ -165,8 +165,14 @@ Finding contents, retention, and the budgets are in [state and budgets](07-state
 
 ## Diagnostics and network boundary
 
-Internal diagnostics use `tracing`, and Fidelity never installs a subscriber. A diagnostic message
-must not contain a secret or raw application data.
+Internal diagnostics use `tracing`, behind an optional feature that is off by default, and Fidelity
+never installs a subscriber. The feature is off so that a default build resolves to no external
+crate, which [delivery](06-delivery.md#engineering-constraints) states and a test holds. A host that
+wants the events turns the feature on and installs a subscriber of its own.
+
+The engine reports every event, because the engine owns the runtime work. An event names the
+detector, the category, the strength, and the action. A diagnostic message must not contain a secret
+or raw application data, because the host's subscriber writes it wherever that host sends its logs.
 
 No crate may contain a remote networking client. A detector may run a documented loopback-only
 probe, such as a query to a local instrumentation endpoint. The probe must be bounded, must not
