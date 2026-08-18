@@ -33,6 +33,10 @@ Avoid treating static paths, URL schemes, parent PID, fixed Frida ports, or func
 as decisive. Frida can map images without dyld, modern fixups invalidate legacy import-table
 assumptions, and sophisticated bypasses can hide all user-mode queries.
 
+The `Virtualization` question on macOS is settled, and the
+[plan](../plan/04-detectors-and-platforms.md#machine-host) owns it. It survived this survey as a
+candidate, and the measurement moved it out of these notes.
+
 Primary starting points: [Apple QA1361](https://developer.apple.com/library/archive/qa/qa1361/_index.html),
 [Apple platform security](https://support.apple.com/guide/security/welcome/web), and
 [OWASP MASTG iOS resilience testing](https://mas.owasp.org/MASTG/0x06j-Testing-Resiliency-Against-Reverse-Engineering/).

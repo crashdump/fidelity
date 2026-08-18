@@ -28,13 +28,14 @@ clarity and record the exception in section 3.
 `fidelity` is an open-source Rust library. It detects changes to an application's runtime
 environment and applies a response that the host application selects.
 
-Five platforms run, each with real clean and hostile evidence. All five compare executable memory
+Five platforms run, each with real clean and hostile controls. All five compare executable memory
 against a baseline that `start()` captured, and all five read tracer state. macOS adds image
-identity and `guarded!()`, and Linux, Android, and Windows add unaccounted code. The iOS evidence
-comes from the simulator, so a device has still to confirm it. The Windows evidence comes from the
-QEMU guest that `evidence/vm/windows/` builds. The Windows identity controls sign the subject in
-that guest, because the tier reads the signature of the running image. No platform is supported
-yet, because that needs the full release evidence.
+identity, `guarded!()`, and the machine host, and Linux, Android, and Windows add unaccounted code.
+The iOS results come from the simulator, so a device has still to confirm them. The Windows results
+come from the QEMU guest that `tests/platform/vm/windows/` builds, and the Windows identity controls
+sign the subject in that guest, because the tier reads the signature of the running image. The
+macOS machine-host control needs a guest too, and `tests/platform/vm/macos/` builds that one. No
+platform is supported yet, because that needs the full release tests.
 
 Capabilities are traits, in `fidelity-core/src/capability/`. Operating systems are crates, under
 `crates/probe/`. `docs/plan/06-delivery.md` holds both axes and the shape that every probe crate
@@ -43,7 +44,7 @@ repeats. Follow it rather than inventing a second pattern.
 - Rustdoc is authoritative for the Rust surface. `docs/plan/` keeps behavior, security semantics,
   and release criteria.
 - Add a crate only with the layout in `docs/plan/06-delivery.md`.
-- Never label a platform supported without real clean and hostile evidence.
+- Never label a platform supported without real clean and hostile controls.
 
 Read `docs/plan/README.md` first. The locked decision index in that file is settled. Do not reopen
 a locked decision, and do not ask the product owner to choose it again.
@@ -91,9 +92,14 @@ Format:
 
 STE lets a project approve its own Technical Names and Technical Verbs. These are approved:
 
-attacker, baseline, callback, category, clean control, debugger, detector, emulator, evidence,
-finding, handle, hook, hostile control, injection, jailbreak, latch, overlay, probe, report, root,
-runtime, scan, signal strength, snapshot, threshold, tracer, virtual machine.
+attacker, baseline, callback, category, clean control, control, debugger, detector, emulator,
+evidence, finding, handle, hook, hostile control, injection, jailbreak, latch, overlay, probe,
+report, root, runtime, scan, signal strength, snapshot, test record, threshold, tracer, virtual
+machine.
+
+`evidence` names one thing only: what a finding carries, which is the `Evidence` type. It never
+names a test, a test run, or the record in `tests/platform/`. Rule 11 is the reason, and the word
+covered both meanings until 2026-08-18.
 
 Replace these words:
 
@@ -106,6 +112,7 @@ Replace these words:
 | via | with, by |
 | in order to | to |
 | deliberately, materially, naturally | delete the word |
+| evidence, for a test record or a test run | test record, control, test |
 | artefact, destabilise, behaviour | artifact, destabilize, behavior |
 
 A Rust identifier keeps its own name. `ensure_allowed()` is an API name, not prose.
@@ -122,7 +129,7 @@ addition and a size trigger conflict, the addition lands and the trigger moves.
 | Path | Role | Size trigger |
 |---|---|---|
 | `README.md` | What the library is, and the first example | 80 lines |
-| `docs/plan/` | Normative specification, 8 files | 330 lines per file |
+| `docs/plan/` | Normative specification, 8 files | 380 lines per file |
 | `docs/adr/` | One enduring constraint and its reason | 50 lines per file |
 | `docs/research/` | Non-normative notes: operating systems, and the vendor survey | 150 lines per file |
 
@@ -157,7 +164,7 @@ nothing.
 
 Two things sit outside this section:
 
-- Verification evidence, in `evidence/`. It is a record that lives with the tests, and it holds the
+- The platform test record, in `tests/platform/`. It lives with the tests, and it holds the
   controls that reproduce it. Never compress a test record. A gap in that record is the work list.
   See `docs/plan/05-verification.md`.
 - Repository metadata: `LICENSE` and `SECURITY.md`.
@@ -173,7 +180,7 @@ State a fact once. Every other document links to it.
 | Lifecycle, configuration, API shape | `docs/plan/03-runtime-and-api.md` |
 | Report contents, retention, memory and performance budgets | `docs/plan/07-state-and-budgets.md` |
 | Signal strength, detector outcomes, excluded mechanisms, identity tiers, platform floors | `docs/plan/04-detectors-and-platforms.md` |
-| Test layers, release evidence, standards traceability | `docs/plan/05-verification.md` |
+| Test layers, release tests, standards traceability | `docs/plan/05-verification.md` |
 | Workspace layout, crates, native code, sequence, engineering constraints | `docs/plan/06-delivery.md` |
 | The single summary of locked decisions | `docs/plan/README.md` |
 | Operating-system mechanism candidates and hazards | `docs/research/platform-notes.md` |
@@ -216,7 +223,7 @@ General:
   semantics, and release criteria.
 - Follow the Rust API Guidelines and the skills in `.agents/skills/`.
 - Section 0 applies to Rust comments, error text, and commit messages. STE is not only for Markdown.
-- A platform is supported only after real clean and hostile evidence exists. A mock, a stub, or a
+- A platform is supported only after real clean and hostile controls exists. A mock, a stub, or a
   successful compile does not count. See `docs/plan/05-verification.md`.
 
 Structure. `docs/plan/06-delivery.md` holds the layout, and it is normative:
@@ -255,8 +262,9 @@ Two deliberate deviations from the skills, with the reason. Do not "fix" either 
 Tests:
 
 - Name a test for the behavior it proves, and prefer one assertion.
-- A rule that a document states needs a test. `crates/fidelity/tests/architecture.rs` holds the
-  rules about the shape of the workspace, and `capability_matrix.rs` holds the rules that keep the
-  coverage table true. Add to one of them rather than trusting a claim. Break each new rule on
-  purpose first, and check that it fails.
+- A rule that a document states needs a test. Four files in `crates/fidelity/tests/` hold them:
+  `architecture.rs` for the shape of the workspace, `capability_matrix.rs` for the coverage table,
+  `test_record.rs` for the generated record and the gate, and `public_surface.rs` for the SemVer
+  surface. Add to one of them rather than trusting a claim. Break each new rule on purpose first,
+  and check that it fails.
 - A pure reader takes a recorded fixture, so its tests run on any machine.

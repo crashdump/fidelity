@@ -61,7 +61,7 @@ impl Device for AndroidEnvironment {
 ///
 /// The decision is a plain function, so a test proves every answer on one
 /// system. Two system images are needed to reach both live answers, and
-/// `evidence/README.md` records that pair.
+/// `tests/platform/README.md` records that pair.
 ///
 /// # Errors
 ///
@@ -108,7 +108,7 @@ mod tests {
     #[test]
     fn the_probe_reads_the_build_of_this_system() {
         // The live control. Which answer it gives depends on the system image,
-        // and both images are recorded evidence. A failure is what must never
+        // and both images sit in the test record. A failure is what must never
         // happen, because every Android system holds these properties.
         let observation = AndroidEnvironment::new().system_build();
         assert!(

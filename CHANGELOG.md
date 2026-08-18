@@ -6,7 +6,21 @@ implementation detail and carries no compatibility promise, so a change to one o
 only when it changes what `fidelity` exposes.
 
 This file records released versions. The work before the first release lives in the git history and
-in `evidence/README.md`, which states what each platform proved and what it did not.
+in `tests/platform/README.md`, which states what each platform proved and what it did not.
+
+## Unreleased
+
+- The `Virtualization` category gains its first detector. `virtualization.machine_host` reports
+  `Medium` when the kernel states that a virtual machine monitor runs the system. macOS answers it,
+  through `kern.hv_vmm_present`, and the other four platforms report `Unsupported`. `Evidence` gains
+  a `VirtualMachineHost` variant, which is an additive change.
+- A `tracing` feature reports internal events, and it is off by default. The engine reports every
+  one, and each names the detector, the category, the strength, and the action. Fidelity installs
+  no subscriber, so a host that turns the feature on installs its own. A default build still
+  resolves to no external crate.
+- An x64 image that runs under the emulation of an ARM64 Windows reports unaccounted code on every
+  clean run, because the translator writes code that no file backs. The test record states the
+  figure, and an ARM64 image on the same machine reports clean.
 
 ## 0.1.0 - 2026-08-17
 
@@ -17,10 +31,10 @@ executable memory against a baseline that `start()` captures, and read tracer st
 Linux, and Android add unaccounted code. Android adds device compromise. `guarded!()` binds a
 constant to the code identity on macOS, iOS, and Android.
 
-The iOS evidence comes from the simulator, and the Windows evidence comes from a virtual machine. A
+The iOS results come from the simulator, and the Windows results come from a virtual machine. A
 device and a physical host have still to confirm those two. Every run used ARM64.
 
-A supported label needs the full release evidence that `docs/plan/05-verification.md` defines, and
+A supported label needs the full release tests that `docs/plan/05-verification.md` defines, and
 no platform holds it yet. Treat this release as an early version. Expect the public surface to
 change before 1.0.
 

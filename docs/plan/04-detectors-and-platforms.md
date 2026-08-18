@@ -183,7 +183,7 @@ detector while one call site answers for it. A developer who debugs a build unde
 it on every run, which is a second reason for the same strength.
 
 A false-positive survey across profilers, crash reporters, and enterprise agents is therefore host
-guidance rather than release evidence. It states which ordinary tools a host should expect a finding
+guidance rather than release tests. It states which ordinary tools a host should expect a finding
 from. It cannot change the strength.
 
 A platform that offers a second independent source adds a second detector, because a disagreement
@@ -203,7 +203,15 @@ maps a module as an image, so an image is accounted. Private memory is not. A se
 neither needs one more question, because a file backs one kind and the page file backs the other,
 and `GetMappedFileName` separates the two. That last pair matters: a manual mapper uses the second
 kind, so a rule that accepted every section would miss it. The strength stays `Medium`, for the
-reason below, and the clean control that a compiler produces has still to run here.
+reason below, and the clean control that a compiler produces has now run here.
+
+That control is the x64 emulator of an ARM64 Windows, and it reports. Measured on 2026-08-18, on
+Windows 11 Pro build 10.0.26200: an x64 build of the same example holds 1052672 bytes of unaccounted
+executable memory across 4 regions, on every run, and the ARM64 build of it holds none. The
+translator writes code that no file backs, which is what a manual mapper does, so no rule separates
+the two. A host that ships an x64 image to an ARM64 machine therefore gets this finding on every
+clean run, and that is a second reason the strength cannot rise. The runtime baseline stays clean in
+the same process, because the translator maps its cache before `start()` reads the baseline.
 
 The measurement is what makes the rule usable, and it separates one compiler from another rather
 than clearing them all. Measured on Android 37 and ARM64, a real runtime process names its code
@@ -294,9 +302,13 @@ own device, and an engineering build all report on every clean run. The bypass i
 root user rewrites the property store, and the tools that take root do exactly that.
 
 Two coverage limits follow, and both are deliberate. A system that reports a released build may
-still be rooted, because the tool that took the privilege also rewrote what the system says. A
-system that reports a development build is not rooted by that fact alone. The detector states what
-the system says about itself, and the strength states how much that is worth.
+still be rooted. A system that reports a development build is not rooted by that fact alone. The
+detector states what the system says about itself, and the strength states how much that is worth.
+
+The first limit is measured rather than argued. Measured on 2026-08-18, on the Android 36 Play Store
+image and ARM64: Magisk 25.2 patches the ramdisk, `magiskd` then runs as root, and `/system/bin/su`
+appears. Both properties stay as they were, so this detector reports `clean` on a system that now
+holds a root daemon. The tool takes the privilege and leaves the statement alone.
 
 iOS can answer this question and no code exists yet. A jailbreak weakens the same kernel guarantees
 that the identity probe already reads, so the mechanism is reachable. It waits for a control that
@@ -304,6 +316,45 @@ produces a jailbroken system.
 
 macOS, Windows, and Linux report `Unsupported`. Each one grants its user administrator rights or
 root by design, so this category has no privilege boundary there to report the loss of.
+
+## Machine host
+
+A virtual machine monitor sits below the operating system, so it reads every byte that the process
+holds and stops it at any instruction. No check inside the process sees that happen. The kernel does
+see the boundary, and this detector reads what the kernel states about it.
+
+| Platform | Source | Hostile control |
+|---|---|---|
+| macOS | `kern.hv_vmm_present`, through `sysctlbyname` | a macOS guest, which `tests/platform/vm/macos/` builds |
+
+Both controls ran. Measured on 2026-08-18: this development machine reports 0 and the detector
+reports clean, and macOS 26.6.2 inside a Virtualization.framework guest reports 1 and the detector
+reports `Medium` and denies the operation. The guest needs no account and answers no network,
+because a launch daemon that the host writes into its disk runs the control at boot.
+
+The name decides the answer, and a near neighbor gives the opposite one. `kern.hv_support` states
+that this machine can host a guest, and ordinary Apple Silicon hardware reports 1 there, so a check
+on that name would report every clean Mac. Apple reads `kern.hv_vmm_present` in its own content
+cache, which refuses to run when that value reports a guest.
+
+This is not the processor flag that the excluded-mechanisms table above rules out. That flag states
+whether the processor offers virtualization, and this value states whether something uses it.
+
+A reported virtual machine is `Medium`, and `High` is closed rather than pending. Both `Medium`
+clauses apply, and either one alone would decide it. The benign case is common: a developer who runs
+the whole system in a guest reports it on every clean run, and so does a build machine, and so does
+a host that ships to a virtual desktop. The bypass is meaningful: one kernel value answers, and a
+root actor on the guest replaces it.
+
+Two coverage limits follow, and both are deliberate. A system that reports the hardware may still
+run under a monitor that hides itself, because the same root actor rewrites the answer. A system
+that reports a monitor is not under attack by that fact alone. The detector states what the system
+says about itself, and the strength states how much that is worth.
+
+iOS, Windows, Linux, and Android can each answer this question, and no code exists yet. Three of
+them hold the hostile control and not the clean one, because this project owns a Linux guest, a
+Windows guest, and two Android emulators, and it owns no bare-metal Linux, no bare-metal Windows,
+and no physical Android device. iOS holds neither control. Each probe crate states its own reason.
 
 ## Supported targets
 
@@ -313,12 +364,17 @@ The v1 floor is:
 |---|---|---|
 | Android | Android 14 (API 34); target API 36 | physical ARM64, and x86_64 and ARM64 emulators |
 | iOS | iOS 26; build with Xcode and iOS SDK 26 | physical ARM64 plus supported simulators |
-| macOS | macOS 15 | ARM64 and x86_64 |
+| macOS | macOS 15 | ARM64 only, on Apple Silicon. No Intel Mac is in scope. |
 | Windows | Windows 11 25H2 or later | ARM64 and x86_64 |
 | Linux | glibc 2.34+ on supported vendor kernels | ARM64 and x86_64; Ubuntu 24.04 and 26.04 are the primary test targets |
 
 Only a vendor-supported security release is eligible. The [release gate](05-verification.md)
 revalidates every floor. Linux musl, older OS releases, and other Apple platforms are not v1.
+
+macOS is the one platform with a single architecture, and that is a scope decision rather than a
+technical limit. No Intel Mac is in scope, so Fidelity makes no promise about an x86_64 macOS build,
+and none about one that runs under Rosetta. The probe code carries no architecture condition, so an
+x86_64 macOS process still reads the same facts. No control covers it, and it carries no promise.
 
 The same public API and the same semantics apply everywhere. Capability metadata expresses what a
 platform lacks. Conditional public types do not. A release cannot call a platform complete while a

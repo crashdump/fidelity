@@ -23,7 +23,7 @@ pub const EXPECTED_IDENTITY: Detector =
 /// case is real and common. That is the definition of `Medium`. A host that
 /// signs for distribution, and wants the check to act, lowers the `Integrity`
 /// threshold. A second platform assigns its own strength when its backend
-/// lands with clean and hostile evidence.
+/// lands with clean and hostile controls.
 const REJECTED_STRENGTH: SignalStrength = SignalStrength::Medium;
 
 /// The strength of an image that does not satisfy the pinned identity.

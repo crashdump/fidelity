@@ -80,32 +80,63 @@ implementation detail.
 - A mobile worker must never prevent the OS from suspending the application.
 
 The first vertical slice measures baseline overhead on each platform. That measurement becomes the
-recorded ceiling, and it is [verification evidence](05-verification.md). A later release that
+recorded ceiling, and it is [the platform test record](05-verification.md). A later release that
 exceeds its recorded ceiling fails the release gate.
 
 ### Measured cost
 
 `cargo run --release --example cost`, in the probe crate of the platform, prints every number
-below. `crates/probe/measure.rs` holds the loop that all three examples share, so the numbers
+below. `crates/probe/measure.rs` holds the loop that all four examples share, so the numbers
 compare directly. Each read goes through `&dyn Environment`, which is the call the engine makes,
-and which is also the only form the optimizer cannot lift out of the loop. Measured on 2026-08-10
-and on ARM64:
+and which is also the only form the optimizer cannot lift out of the loop. Every column used ARM64.
+The first four were measured on 2026-08-10, and the Windows column on 2026-08-18 in the QEMU guest
+that `tests/platform/vm/windows/` builds:
 
-| Read | macOS 26 | iOS 26, simulator | Debian, glibc | Android 37 |
-|---|---|---|---|---|
-| `code_identity` | 190 us | 84 ns | none | 52 us |
-| `identity_match` | 150 us | 102 ns | none | 51 us |
-| `tracer_state` | 18 us | 20 us | 3.6 us | 4.8 us |
-| `code_regions` | 58 us | 70 us | 9.7 us | 35 us |
-| `code_origin` | none | none | 9.3 us | 35 us |
-| one worker cycle | 416 us | 90 us | 23 us | 178 us |
+| Read | macOS 26 | iOS 26, simulator | Debian, glibc | Android 37 | Windows 11 |
+|---|---|---|---|---|---|
+| `code_identity` | 190 us | 84 ns | none | 52 us | 296 us |
+| `identity_match` | 150 us | 102 ns | none | 51 us | 98 us |
+| `tracer_state` | 18 us | 20 us | 3.6 us | 4.8 us | 1.2 us |
+| `code_regions` | 58 us | 70 us | 9.7 us | 35 us | 411 us |
+| `code_origin` | none | none | 9.3 us | 35 us | 410 us |
+| one worker cycle | 416 us | 90 us | 23 us | 178 us | 1.2 ms |
 
-Three facts decide how to read that table.
+Five facts decide how to read that table.
+
+**A translated x64 process pays for the walk, and not for the identity read.** Every column above is
+ARM64. An ARM64 Windows runs an x64 image under its own emulation, so one machine measures both
+architectures. Windows supports both, so this is a supported configuration. Measured on 2026-08-18:
+
+| Read | Windows 11, x64 emulation |
+|---|---|
+| `code_identity` | 301 us |
+| `identity_match` | 73 us |
+| `tracer_state` | 1.3 us |
+| `code_regions` | 722 us |
+| `code_origin` | 744 us |
+| one worker cycle | 1.8 ms |
+
+The walk costs the most, because it is a loop of system calls and the translator charges for each
+one. The identity read costs less than the ARM64 column does, because it spends its time inside a
+library that runs natively whatever the caller is. A host that ships an x64 image to an ARM64
+Windows therefore pays about 1.5 cycles, and `tests/platform/README.md` records what its detectors
+answer.
+
+Rosetta gives the same shape on macOS, and it is not a supported configuration: macOS runs on ARM64
+alone, so an x86_64 macOS build carries no promise. Measured on 2026-08-18 and kept as a note rather
+than a budget, `code_regions` cost 429 us against 58 us native, and the identity read did not move.
+
+**The Windows column carries a wider spread than the others.** A virtual machine produced it, and no
+other column. Three runs on the same guest gave 296 us, 416 us, and 297 us for one `code_identity`,
+and 411 us, 540 us, and 400 us for one `code_regions`. The table holds the two runs that agree, and
+a physical host has still to confirm them. The gaps table in `tests/platform/README.md` records
+that.
 
 **The worker reads the identity twice on each cycle.** Platform trust reads `code_identity` and
 expected identity reads `identity_match`, and each detector reads for itself. The pair is 82
 percent of the macOS cycle. A cache inside one cycle would remove that, and it would also let one
-detector answer with what the other saw, so v1 pays it.
+detector answer with what the other saw, so v1 pays it. The same pair is 32 percent of the Windows
+cycle, where the two address-space walks cost more than the identity does.
 
 **The Android column above is a shell binary, which maps no archive.** Its identity read stops at
 the gap, so the whole route is unmeasured there. The instrumented harness measures an application
@@ -124,10 +155,14 @@ They catch a regression of one order rather than state the budget.
 
 **The iOS reads are nanoseconds because the image names no team.** The walk finds the signature,
 finds no entitlements slot, and stops. An image that names a team adds a scan of a small plist.
-That figure is unverified, because Apple refuses to launch an ad-hoc image that carries the
-entitlement. See [verification](05-verification.md).
+That figure is unverified, because the simulator refuses to launch any image that carries the
+entitlement. Measured on 2026-08-18, the refusal holds for a bare binary and for an installed app
+bundle, and for an ad-hoc signature and a real developer certificate alike, because a simulator has
+no provisioning mechanism. A device closes it. See [verification](05-verification.md).
 
-The first call is separate, and only macOS charges a large one: between 4 ms and 8 ms, because the
-Security framework loads and fills its caches once. `start()` pays it, and it is the figure a host
-notices. Every other first call costs under 130 us, so no other platform pays a startup cost that
-a host can measure.
+The first call is separate, and two platforms charge a large one. macOS costs between 4 ms and 8 ms,
+because the Security framework loads and fills its caches once. Windows costs the same order for the
+first `code_identity`, between 4 ms and 8 ms across three runs, because `WinVerifyTrust` builds and
+validates a certificate chain. It also costs about 780 us for the first `code_regions`. `start()`
+pays both, and they are the figures a host notices. Every first call on the other three platforms
+costs under 130 us.
