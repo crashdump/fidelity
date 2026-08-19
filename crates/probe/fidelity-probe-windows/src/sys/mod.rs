@@ -11,6 +11,7 @@
 
 pub(crate) mod crypt;
 pub(crate) mod debug;
+pub(crate) mod dispatch;
 pub(crate) mod firmware;
 pub(crate) mod image;
 pub(crate) mod memory;

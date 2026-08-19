@@ -67,6 +67,9 @@ fn main() {
     measure::report("code_origin", || {
         black_box(black_box(environment).code_origin());
     });
+    measure::report("dispatch_targets", || {
+        black_box(black_box(environment).dispatch_targets());
+    });
 }
 
 #[cfg(not(target_os = "windows"))]

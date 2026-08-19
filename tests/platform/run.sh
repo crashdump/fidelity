@@ -1014,6 +1014,23 @@ if [ -n "$WINDOWS_HOW" ]; then
             target/debug/examples/late.exe'
     }
 
+    # The dispatch pair. `iat-hook-windows.c` redirects one import address table
+    # entry of the subject after start, to an address that another entry already
+    # holds. It maps no new region, so the runtime baseline reports clean and
+    # only this detector reports it. The subject already runs, so only the
+    # worker catches it, and `trace-after-start.sh` drives it.
+    dispatch_hostile_windows() {
+        windows 'cargo build --quiet --example redirect -p fidelity &&
+            sh tests/platform/controls/build-control.sh iat-hook-windows &&
+            sh tests/platform/controls/trace-after-start.sh \
+                target/debug/examples/redirect.exe \
+                target/platform/iat-hook-windows.exe'
+    }
+    dispatch_clean_windows() {
+        windows 'cargo build --quiet --example redirect -p fidelity &&
+            target/debug/examples/redirect.exe'
+    }
+
     # The tracer set, in the same three shapes as macOS and Linux.
     tracer_clean_windows() {
         windows 'cargo build --quiet --example tracer -p fidelity &&
@@ -1098,6 +1115,9 @@ takes the guest: tests/platform/controls/vm.sh windows start"
     fi
     run Windows inject-clean-windows inject_clean_windows
     run Windows inject-hostile-windows inject_hostile_windows
+    run Windows dispatch-hostile-windows dispatch_hostile_windows
+    refute Windows dispatch-clean-windows 'no dispatch target moved after start' \
+        dispatch_clean_windows
     run Windows baseline-hostile-windows baseline_hostile_windows
     refute Windows baseline-clean-windows 'no code arrived after start' \
         baseline_clean_windows
@@ -1127,6 +1147,7 @@ tests/platform/controls/vm.sh windows start"
         identity-clean-windows identity-other-signer-windows \
         identity-untrusted-windows \
         inject-clean-windows inject-hostile-windows \
+        dispatch-hostile-windows dispatch-clean-windows \
         baseline-hostile-windows baseline-clean-windows \
         tracer-clean-windows tracer-at-start-windows tracer-attaches-windows \
         cost-windows-x86 inject-emulated-x86 baseline-clean-x86-windows \

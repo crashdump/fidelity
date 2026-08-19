@@ -253,26 +253,32 @@ else than at start.
 | Platform | Source | Hostile control |
 |---|---|---|
 | Linux | the jump-slot relocations of the main image, through `dl_iterate_phdr` | `hook.c`, which points `memcpy` at `memmove` |
+| Windows | the import address table of the main module, through `GetModuleHandle` and the PE headers | `iat-hook-windows.c`, which redirects a startup import from outside |
 
 The detector reads the main image alone, and the reason is the memory budget. A shared library can
 hold thousands of dispatch targets, and the snapshot must stay bounded. Measured on Linux and
-ARM64: a Rust main image holds about 80. The main image is also the table that an attacker rewrites
-to intercept the host's own calls, so it is the table worth reading first.
+ARM64: a Rust main image holds about 80, and on Windows and ARM64 a Rust main module holds 71. The
+main image is also the table that an attacker rewrites to intercept the host's own calls, so it is
+the table worth reading first.
 
 The comparison needs a table that the loader bound fully before the process ran. A table that the
 loader binds on the first call rewrites its own entries later, which reads exactly as a hook reads.
 Measured on Linux and ARM64 on 2026-08-19: a Rust main image, in a debug build and a release build,
 carries `BIND_NOW`, so every entry holds its final value from before the process ran and a later
 change arrived from outside. A main image that is not fully bound reports `Unsupported`, which
-states the gap rather than a false clean.
+states the gap rather than a false clean. Windows resolves the static import table at load, before
+the entry point, so it is always fully bound, and a delay-load import is a separate table that the
+probe does not read.
 
 A redirected target is `Medium`, and `High` is closed rather than pending. The evidence is direct,
 because a fully bound table does not rewrite its own entries. It stays below `High` for the reason
 the signal model states: an attacker inside the process rewrites the table and the comparison logic
-together, so the signal has a meaningful user-mode bypass. Measured on Linux and ARM64 on
-2026-08-19: the `memcpy` slot of the main image, redirected to `memmove`, left the runtime baseline
-clean over 40 seconds and this detector caught it after 5.6 seconds, so this detector catches a hook
-that maps no new executable region.
+together, so the signal has a meaningful user-mode bypass. Measured on 2026-08-19, on ARM64: the
+`memcpy` slot of a Linux main image, redirected to `memmove`, left the runtime baseline clean over
+40 seconds and this detector caught it after 5.6 seconds. On Windows, an external `WriteProcessMemory`
+redirected a startup import of the running subject to another loaded function, and this detector
+caught it after 7.0 seconds while the baseline stayed clean, because the import table sits in a data
+section. So this detector catches a hook that maps no new executable region.
 
 Three clean controls decided the rule, and each one ran on Linux and ARM64 on 2026-08-19. A plain
 process, a Rust process, and a Python process with SQLite and OpenSSL, which holds 6749 targets,

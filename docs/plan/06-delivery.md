@@ -139,7 +139,7 @@ The marker states what the code does today, and a test enforces every cell. See
 | `baseline` | `Integrity` | yes | yes | yes | yes | yes |
 | `tracer` | `Debugging` | yes | yes | yes | yes | yes |
 | `injection` | `Instrumentation` | no | no | yes | yes | yes |
-| `dispatch` | `Instrumentation` | plan | plan | plan | yes | plan |
+| `dispatch` | `Instrumentation` | plan | plan | yes | yes | plan |
 | `device` | `DeviceCompromise` | no | plan | no | no | yes |
 | `emulation` | `Virtualization` | yes | plan | yes | yes | yes |
 | `lifecycle` | none | yes | yes | no | no | yes |
