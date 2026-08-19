@@ -27,6 +27,19 @@ fn the_runtime_starts_once_and_reports_its_state() {
         "a started runtime holds one slot for each built-in detector"
     );
     for state in snapshot.detectors() {
+        // One detector takes its input from the host and not from a scan, so
+        // no scan can reach it and `NotRun` is where it rests until the host
+        // reports. That reads as the absence of a report, which is what it is,
+        // and it never reads as a clean result.
+        if state.detector().category() == Category::UiAbuse {
+            assert_eq!(
+                state.outcome(),
+                &Outcome::NotRun,
+                "{} takes a host report, so a scan must never move it",
+                state.detector().name()
+            );
+            continue;
+        }
         assert_ne!(
             state.outcome(),
             &Outcome::NotRun,

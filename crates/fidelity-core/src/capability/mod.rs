@@ -42,12 +42,17 @@
 //! | Capability | Category | Answers |
 //! |---|---|---|
 //! | [`identity`] | `Integrity` | Is this the expected image, and who signed it? |
-//! | [`baseline`] | `Integrity` | Did the mappings or the dispatch targets change? |
+//! | [`baseline`] | `Integrity` | Did the executable mappings change since start? |
 //! | [`tracer`] | `Debugging` | Does a debugger or a tracer hold this process? |
-//! | [`injection`] | `Instrumentation` | Is a hook, an injection, or an agent present? |
+//! | [`injection`] | `Instrumentation` | Does executable memory hold code that no file accounts for? |
+//! | [`dispatch`] | `Instrumentation` | Did a call target of the main image change since start? |
 //! | [`device`] | `DeviceCompromise` | Is the operating-system security model weakened? |
 //! | [`emulation`] | `Virtualization` | Does this run in an emulator or a virtual machine? |
-//! | `interface` | `UiAbuse` | Does another application read or drive the interface? |
+//!
+//! `UiAbuse` holds no capability, and a measurement decided that rather than an
+//! omission. No operating system answers the question, so the host reports what
+//! it observed on its own window and one detector takes that report. See
+//! `docs/plan/04-detectors-and-platforms.md`.
 //!
 //! One capability answers no question and reports no finding:
 //!
@@ -64,6 +69,7 @@
 
 pub mod baseline;
 pub mod device;
+pub mod dispatch;
 pub mod emulation;
 pub mod identity;
 pub mod injection;
@@ -72,6 +78,7 @@ pub mod tracer;
 
 pub use baseline::Baseline;
 pub use device::Device;
+pub use dispatch::Dispatch;
 pub use emulation::Emulation;
 pub use identity::Identity;
 pub use injection::Injection;

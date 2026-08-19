@@ -9,6 +9,7 @@
 
 pub mod baseline;
 pub mod device;
+pub mod dispatch;
 pub mod emulation;
 pub mod identity;
 pub mod injection;
@@ -17,6 +18,7 @@ pub mod tracer;
 
 pub use baseline::{CodeRegions, MAX_REGIONS, Region};
 pub use device::SystemBuild;
+pub use dispatch::{DispatchTargets, MAX_TARGETS, Target};
 pub use emulation::MachineHost;
 pub use identity::{CodeIdentity, IdentityMatch, PlatformTrust, Signer};
 pub use injection::CodeOrigin;

@@ -34,8 +34,10 @@ silent under-coverage on upgrade, because a new detector would carry no configur
 category-level action covers every detector that a later release adds.
 
 `UiAbuse` covers overlays, hostile accessibility services, screen capture, and screen recording.
-These attacks need platform user-interface APIs, so the category is mobile-first. It reports
-`Unsupported` where a platform gives no equivalent surface.
+These attacks need platform user-interface APIs, so the category is mobile-first. It is also the one
+category that reads no operating system: the host reports what it observed on its own window, and
+[the user interface](04-detectors-and-platforms.md#the-user-interface) holds the measurement that
+decided that.
 
 ## v1 responses
 

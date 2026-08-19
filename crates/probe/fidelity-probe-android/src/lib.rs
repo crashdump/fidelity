@@ -9,7 +9,7 @@
 //!
 //! # Status
 //!
-//! Every capability except `emulation` and `interface` answers. Only
+//! Every capability answers. Only
 //! `lifecycle` needs the JVM handle that the host supplies: the kernel, the
 //! process filesystem, the archive, and the property store answer the rest,
 //! so a shell binary reaches them as well. The coverage matrix in
@@ -33,13 +33,14 @@
 
 mod baseline;
 mod device;
+mod emulation;
 mod identity;
 mod injection;
 mod lifecycle;
 mod sys;
 mod tracer;
 
-use fidelity_core::{Emulation, Environment};
+use fidelity_core::{Dispatch, Environment};
 use fidelity_types::Platform;
 
 /// The Android view of the running process.
@@ -102,9 +103,8 @@ impl Environment for AndroidEnvironment {
     }
 }
 
-// Android can answer `emulation`, and no code exists yet. The property store
-// states what the system runs on, and this probe already reads it for
-// `device`. The clean control is what is missing: both Android controls run on
-// an emulator, which is the hostile side of this question, and a physical
-// device supplies the other side.
-impl Emulation for AndroidEnvironment {}
+// Android can answer `dispatch`, and no code exists yet. A native procedure
+// linkage table redirect points a call at another address, which the same
+// loader walk that Linux uses reads. The plan holds the cell as `plan`. See
+// `docs/plan/04-detectors-and-platforms.md`.
+impl Dispatch for AndroidEnvironment {}

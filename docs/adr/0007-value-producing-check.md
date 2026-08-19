@@ -34,14 +34,10 @@ it, because one hook dumps every guarded constant at once.
 - Coverage depends on which constants the host wraps. Fidelity does not rewrite host code.
 - An attacker who runs the application once, or who hooks the identity call, recovers the value.
 - Both key inputs ship inside the artifact, so the guard resists a repackage and not an extraction.
-  The salt sits beside the ciphertext, and the operating system reports the identity to anybody.
-- A build states its identity choice, and the running image must supply it. A build that binds to
-  an identity fails its start where the image reports none, because a wrong key reports no error.
-  Linux without fs-verity, and every platform whose probe cannot answer yet, therefore state no
-  identity, which reduces the guard to the per-build key.
-- Each platform reports different material, and one Cargo invocation builds one target, so a host
-  states the value that its target reports. The variable does not name a platform, so a value meant
-  for another target reaches the key derivation silently. Absent material fails the start, and wrong
-  material cannot, because the build-time value never reaches the running process.
+- A build states its identity choice, and the running image must supply it, because a wrong key
+  reports no error. Linux without fs-verity, and every platform whose probe cannot answer yet,
+  therefore state no identity, which reduces the guard to the per-build key. The build variable, the
+  material that each platform reports, and what a missing or wrong value does are operational
+  detail, and [runtime and API](../plan/03-runtime-and-api.md#guarded-constants) holds them.
 - Expansion costs size and time. See [budgets](../plan/07-state-and-budgets.md).
 - Fidelity ships a macro crate. See [delivery](../plan/06-delivery.md).

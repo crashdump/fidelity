@@ -60,7 +60,9 @@ Integrity checks distinguish two baselines:
   that start mapped as read and execute and that something has made writable. It detects later
   change but cannot prove that launch was initially clean. It does not detect code that an attacker
   replaces inside a mapping that keeps both its first address and its protection, because a scan
-  reads no content. Dispatch targets are not recorded yet.
+  reads no content. A redirected call is a separate question, and the
+  [dispatch detector](#dispatch-targets) answers it. That detector is `Instrumentation`, not
+  `Integrity`, because a redirected call is a hook.
 
 ### Image identity tiers
 
@@ -153,9 +155,9 @@ next scan reports it, and a missed region costs one worker cycle rather than goi
 A second pass would shorten that window and report a `Low` detector-health finding every time a
 runtime mapped code between the two passes, so it would cost a false finding on every process that
 holds a JIT. Evidence states which anchor the scan checked, and which regions or identities it
-excluded. Every integrity detector must
-have clean and hostile test cases for relocations, packaging transforms, JIT runtimes, late
-legitimate loads, startup races, and a baseline that exists before `start()`.
+excluded. Every integrity detector must have clean and hostile test cases for relocations,
+packaging transforms, JIT runtimes, late legitimate loads, startup races, and a baseline that
+exists before `start()`.
 
 ## Tracer state
 
@@ -239,6 +241,52 @@ absolute rule separates it.
 The signal that survives on Apple is therefore a change against a baseline that the process
 captures at start, and not an absolute count. That is the runtime baseline below, which is why the
 two tiers are separate.
+
+## Dispatch targets
+
+A loader resolves an imported call through a table of pointers. A hook that rewrites one entry
+redirects the call to code that already exists. It maps no new executable region, so the runtime
+baseline below reports clean, and the table holds data rather than code, so unaccounted code does
+not reach it either. This detector reads that table, and reports an entry that points somewhere
+else than at start.
+
+| Platform | Source | Hostile control |
+|---|---|---|
+| Linux | the jump-slot relocations of the main image, through `dl_iterate_phdr` | `hook.c`, which points `memcpy` at `memmove` |
+
+The detector reads the main image alone, and the reason is the memory budget. A shared library can
+hold thousands of dispatch targets, and the snapshot must stay bounded. Measured on Linux and
+ARM64: a Rust main image holds about 80. The main image is also the table that an attacker rewrites
+to intercept the host's own calls, so it is the table worth reading first.
+
+The comparison needs a table that the loader bound fully before the process ran. A table that the
+loader binds on the first call rewrites its own entries later, which reads exactly as a hook reads.
+Measured on Linux and ARM64 on 2026-08-19: a Rust main image, in a debug build and a release build,
+carries `BIND_NOW`, so every entry holds its final value from before the process ran and a later
+change arrived from outside. A main image that is not fully bound reports `Unsupported`, which
+states the gap rather than a false clean.
+
+A redirected target is `Medium`, and `High` is closed rather than pending. The evidence is direct,
+because a fully bound table does not rewrite its own entries. It stays below `High` for the reason
+the signal model states: an attacker inside the process rewrites the table and the comparison logic
+together, so the signal has a meaningful user-mode bypass. Measured on Linux and ARM64 on
+2026-08-19: the `memcpy` slot of the main image, redirected to `memmove`, left the runtime baseline
+clean over 40 seconds and this detector caught it after 5.6 seconds, so this detector catches a hook
+that maps no new executable region.
+
+Three clean controls decided the rule, and each one ran on Linux and ARM64 on 2026-08-19. A plain
+process, a Rust process, and a Python process with SQLite and OpenSSL, which holds 6749 targets,
+each reported no target that points outside every loaded object. Lazy binding moved 6 of 12 targets
+in a plain C build, so a rule that read "the target changed" would report every process that makes
+a call, which is why the detector reads a fully bound table only. A benign `dlopen` after start
+loaded a library and moved 4 targets, and none of them pointed into the library it loaded, so a
+plugin load does not trip the detector.
+
+Two coverage limits follow, and both are deliberate. A redirect to another address inside an object
+that was already loaded, such as `memcpy` to `memmove`, reports here, but a redirect that the
+attacker maps as new executable memory is the runtime baseline's finding instead, because the
+trampoline is a region that arrived after start. A hook of a shared library's own dispatch table is
+out of scope, because the snapshot reads the main image alone.
 
 ## Runtime baseline
 
@@ -326,11 +374,31 @@ see the boundary, and this detector reads what the kernel states about it.
 | Platform | Source | Hostile control |
 |---|---|---|
 | macOS | `kern.hv_vmm_present`, through `sysctlbyname` | a macOS guest, which `tests/platform/vm/macos/` builds |
+| Linux | the firmware identity, which the kernel writes under `/sys/class/dmi/id/`, and the paravirtual bus under `/sys/bus/virtio/devices` | the Linux guest, and a second monitor that ships no firmware identity |
+| Windows | the same firmware identity, through `GetSystemFirmwareTable` with the `RSMB` provider | the Windows guest |
+| Android | `ro.boot.qemu`, `ro.build.characteristics`, and `ro.hardware`, through the property store | an emulator image |
 
-Both controls ran. Measured on 2026-08-18: this development machine reports 0 and the detector
-reports clean, and macOS 26.6.2 inside a Virtualization.framework guest reports 1 and the detector
-reports `Medium` and denies the operation. The guest needs no account and answers no network,
-because a launch daemon that the host writes into its disk runs the control at boot.
+macOS holds both controls. Measured on 2026-08-18: this development machine reports 0 and the
+detector reports clean, and macOS 26.6.2 inside a Virtualization.framework guest reports 1 and the
+detector reports `Medium` and denies the operation. The guest needs no account and answers no
+network, because a launch daemon that the host writes into its disk runs the control at boot.
+
+Linux, Windows, and Android hold the hostile control alone, because this project owns no bare-metal
+Linux, no bare-metal Windows, and no physical Android device. Measured on 2026-08-19: the Linux
+guest and the Windows guest each report `QEMU` and `QEMU Virtual Machine`, and the Android 37
+emulator reports `ro.boot.qemu=1`. All three report `Medium` and deny the operation.
+
+Linux and Windows read the same two fields of the same DMTF structure, so both call one reader in
+`fidelity-formats`, and one list of names decides for both. The list is the `dmi_vendor_table` of
+systemd, read on 2026-08-19, without two of its entries: `Amazon EC2` and `Oracle Corporation` each
+name real hardware as well. An unknown name reports nothing, which costs coverage and never costs a
+clean run.
+
+Linux reads a second source, and a measurement is the reason. Measured on 2026-08-19: an ARM64
+Linux guest under Virtualization.framework, which OrbStack runs on this development machine, exposes
+no `/sys/class/dmi` at all and holds twelve virtio devices. A firmware name alone would say nothing
+there. The two sources cover different parts of one question and neither states that the other is
+absent, so they can never disagree and one capability reads both.
 
 The name decides the answer, and a near neighbor gives the opposite one. `kern.hv_support` states
 that this machine can host a guest, and ordinary Apple Silicon hardware reports 1 there, so a check
@@ -343,18 +411,65 @@ whether the processor offers virtualization, and this value states whether somet
 A reported virtual machine is `Medium`, and `High` is closed rather than pending. Both `Medium`
 clauses apply, and either one alone would decide it. The benign case is common: a developer who runs
 the whole system in a guest reports it on every clean run, and so does a build machine, and so does
-a host that ships to a virtual desktop. The bypass is meaningful: one kernel value answers, and a
-root actor on the guest replaces it.
+a host that ships to a virtual desktop. The bypass is meaningful on every platform: the system
+states this about itself, in a value or a file or a property, and a root actor on the guest writes
+what it likes there.
 
 Two coverage limits follow, and both are deliberate. A system that reports the hardware may still
 run under a monitor that hides itself, because the same root actor rewrites the answer. A system
 that reports a monitor is not under attack by that fact alone. The detector states what the system
 says about itself, and the strength states how much that is worth.
 
-iOS, Windows, Linux, and Android can each answer this question, and no code exists yet. Three of
-them hold the hostile control and not the clean one, because this project owns a Linux guest, a
-Windows guest, and two Android emulators, and it owns no bare-metal Linux, no bare-metal Windows,
-and no physical Android device. iOS holds neither control. Each probe crate states its own reason.
+iOS can answer this question, and no code exists yet. It holds neither control, and a measurement
+decided that rather than caution. Measured on 2026-08-19 in an iOS 18.5 simulator: a process there
+reads the kernel of the Mac that hosts it, so `kern.hv_vmm_present`, `hw.machine`, and `hw.model`
+each report what the Mac reports and none of them describes the simulator. A rule that separated a
+simulator from a device would rest on what this project believes a device reports, and this project
+holds no device. The probe crate states that.
+
+## The user interface
+
+Every other category reads the operating system. This one cannot, and a measurement decided that
+rather than a preference.
+
+Measured on Android 37 on 2026-08-19. A library reaches an application context by itself, through a
+call on a list that Google owns. What that context then reaches splits in two:
+
+- `WindowManager` declares 41 methods, and only the two screen-recording ones touch this question.
+  Nothing states that another application draws above this one. That evidence is
+  `MotionEvent.FLAG_WINDOW_IS_OBSCURED`, which arrives on a touch that a `View` receives, and a
+  library holds no `View`.
+- `addScreenRecordingCallback` registers from an application context, and the SDK source states its
+  anchor as any activity of the registering uid. So a library inside the host process reads what the
+  host reads. It needs a permission in the host's manifest, and it needs API 35 against a floor of
+  34.
+
+Both remaining package lists are weak evidence, and the excluded-mechanisms table above already
+rules the accessibility one out. A clean emulator enables no accessibility service and holds 17
+packages that request permission to draw over another application, nearly all of them Google's own.
+
+So the host reads it, and `Handle::report_ui_abuse` takes the report. The host supplies a fact, and
+Fidelity decides the strength, the evidence, and the action, because a host that stated its own
+strength would be stating policy.
+
+| Observation | Strength | Why |
+|---|---|---|
+| an overlay | `Medium` | direct evidence, and a screen dimmer, a caption window, and an assistive overlay all raise the same flag |
+| a screen capture | `Low` | a person who records their own screen is the ordinary explanation |
+
+The call records the finding at once, so a configured `Deny` latches before it returns and
+`ensure_allowed()` denies immediately. `Callback` and `Crash` run host code, and only the worker
+runs host code, so those two reach the report on the worker's next cycle. The initial scan takes the
+same route. A queue holds one cycle of reports and never a history, so a host that reports without
+stopping never grows the memory of the process it protects.
+
+The state slot rests at `NotRun` until a host reports. That states the absence of a report, which is
+what it is, and the signal model above forbids reading it as a clean result. No scan reaches this
+detector, so nothing else can move it.
+
+This category has no capability and no platform row, and the coverage matrix in
+[delivery](06-delivery.md#capability-coverage) states that. Its controls run on any machine, because
+no operating system takes part.
 
 ## Supported targets
 

@@ -24,7 +24,7 @@
 
 #![forbid(unsafe_code)]
 
-use fidelity_core::{CodeRegions, Environment};
+use fidelity_core::{CodeRegions, DispatchTargets, Environment};
 use fidelity_types::{
     BoundedText, Detector, Evidence, ExpectedIdentity, Finding, Outcome, SignalStrength,
 };
@@ -33,12 +33,14 @@ mod debugging;
 mod device_compromise;
 mod instrumentation;
 mod integrity;
+mod ui_abuse;
 mod virtualization;
 
 pub use debugging::TRACER_PRESENT;
 pub use device_compromise::SYSTEM_BUILD;
-pub use instrumentation::UNACCOUNTED_CODE;
+pub use instrumentation::{DISPATCH_TARGETS, UNACCOUNTED_CODE};
 pub use integrity::{EXPECTED_IDENTITY, PLATFORM_TRUST, RUNTIME_BASELINE};
+pub use ui_abuse::{HOST_REPORT, host_report};
 pub use virtualization::MACHINE_HOST;
 
 /// Every detector that this build composes.
@@ -50,9 +52,11 @@ pub const INVENTORY: &[Detector] = &[
     EXPECTED_IDENTITY,
     TRACER_PRESENT,
     UNACCOUNTED_CODE,
+    DISPATCH_TARGETS,
     RUNTIME_BASELINE,
     SYSTEM_BUILD,
     MACHINE_HOST,
+    HOST_REPORT,
 ];
 
 /// The built-in detectors, with the configuration they need.
@@ -62,17 +66,27 @@ pub const INVENTORY: &[Detector] = &[
 pub struct Detectors {
     expected: Option<ExpectedIdentity>,
     baseline: Option<CodeRegions>,
+    dispatch: Option<DispatchTargets>,
 }
 
 impl Detectors {
     /// Composes the detectors for one runtime.
     ///
-    /// The baseline is the snapshot that `start()` captured, before the host
-    /// ran any of its own work. It is immutable for the life of the runtime,
-    /// because a baseline that a later scan could move would prove nothing.
+    /// The baseline and the dispatch snapshot are what `start()` captured,
+    /// before the host ran any of its own work. Both are immutable for the
+    /// life of the runtime, because a snapshot that a later scan could move
+    /// would prove nothing.
     #[must_use]
-    pub const fn new(expected: Option<ExpectedIdentity>, baseline: Option<CodeRegions>) -> Self {
-        Self { expected, baseline }
+    pub const fn new(
+        expected: Option<ExpectedIdentity>,
+        baseline: Option<CodeRegions>,
+        dispatch: Option<DispatchTargets>,
+    ) -> Self {
+        Self {
+            expected,
+            baseline,
+            dispatch,
+        }
     }
 
     /// Runs the detectors whose probes are bounded and cheap.
@@ -98,6 +112,9 @@ impl Detectors {
             }),
             guarded(UNACCOUNTED_CODE, now_unix_ms, || {
                 instrumentation::unaccounted_code(environment, now_unix_ms)
+            }),
+            guarded(DISPATCH_TARGETS, now_unix_ms, || {
+                instrumentation::dispatch_targets(environment, self.dispatch.as_ref(), now_unix_ms)
             }),
             guarded(RUNTIME_BASELINE, now_unix_ms, || {
                 integrity::runtime_baseline(environment, self.baseline.as_ref(), now_unix_ms)
@@ -178,11 +195,17 @@ mod tests {
     };
 
     use super::{
-        Detectors, EXPECTED_IDENTITY, INVENTORY, MACHINE_HOST, PLATFORM_TRUST, RUNTIME_BASELINE,
-        TRACER_PRESENT, UNACCOUNTED_CODE,
+        Detectors, EXPECTED_IDENTITY, HOST_REPORT, INVENTORY, MACHINE_HOST, PLATFORM_TRUST,
+        RUNTIME_BASELINE, TRACER_PRESENT, UNACCOUNTED_CODE,
     };
 
     const NOW: u64 = 1_700_000_000_000;
+
+    /// How many inventory entries no scan reports.
+    ///
+    /// `HOST_REPORT` is the one. It holds a state slot, because the host
+    /// reports into it, and no scan reaches it.
+    const HOST_FED: usize = 1;
 
     /// An environment whose tracer capability panics.
     ///
@@ -192,6 +215,7 @@ mod tests {
 
     impl fidelity_core::Lifecycle for PanickingTracer {}
     impl fidelity_core::Baseline for PanickingTracer {}
+    impl fidelity_core::Dispatch for PanickingTracer {}
     impl fidelity_core::Injection for PanickingTracer {}
     impl fidelity_core::Identity for PanickingTracer {}
     impl fidelity_core::Device for PanickingTracer {}
@@ -216,12 +240,12 @@ mod tests {
         // Without the catch this unwind ends the only worker thread, and the
         // runtime then reports nothing for the life of the process. The test
         // prints the panic that it causes, and that output is expected.
-        let outcomes = Detectors::new(None, None).scan_cheap(&PanickingTracer, NOW);
+        let outcomes = Detectors::new(None, None, None).scan_cheap(&PanickingTracer, NOW);
 
         assert_eq!(
             outcomes.len(),
-            INVENTORY.len(),
-            "every detector still answers"
+            INVENTORY.len() - HOST_FED,
+            "every detector that a scan reaches still answers"
         );
 
         let Some((_, outcome)) = outcomes
@@ -257,7 +281,7 @@ mod tests {
         expected: Option<ExpectedIdentity>,
         detector: fidelity_types::Detector,
     ) -> Outcome {
-        Detectors::new(expected, None)
+        Detectors::new(expected, None, None)
             .scan_cheap(environment, NOW)
             .into_iter()
             .find(|(candidate, _)| *candidate == detector)
@@ -266,8 +290,33 @@ mod tests {
 
     #[test]
     fn the_inventory_holds_every_detector_that_a_scan_reports() {
-        let reported = Detectors::new(None, None).scan_cheap(&FakeEnvironment::new(), NOW);
-        assert_eq!(reported.len(), INVENTORY.len());
+        // The engine creates one state slot for each inventory entry, and an
+        // observation cannot create a slot, so a scan that reported a detector
+        // the inventory lacks would report into nothing.
+        let reported = Detectors::new(None, None, None).scan_cheap(&FakeEnvironment::new(), NOW);
+        for (detector, _) in &reported {
+            assert!(
+                INVENTORY.contains(detector),
+                "{} reports, and the inventory holds no slot for it",
+                detector.name()
+            );
+        }
+        assert_eq!(reported.len(), INVENTORY.len() - HOST_FED);
+    }
+
+    #[test]
+    fn the_host_fed_detector_holds_a_slot_and_no_scan_reports_it() {
+        // The other direction, and it is not the same rule. `HOST_REPORT`
+        // takes its input from the host, so it needs a slot and no scan may
+        // fill it. A scan that reported it would state something the host
+        // never said.
+        assert!(INVENTORY.contains(&HOST_REPORT));
+        let reported = Detectors::new(None, None, None).scan_cheap(&FakeEnvironment::new(), NOW);
+        assert!(
+            !reported
+                .iter()
+                .any(|(detector, _)| *detector == HOST_REPORT)
+        );
     }
 
     #[test]
@@ -599,7 +648,7 @@ mod tests {
         let now = CodeRegions::new(vec![Region::new(0x1000, 0x2000, true)]);
         let environment = FakeEnvironment::default().with_code_regions(Observation::Fact(now));
 
-        let outcomes = Detectors::new(None, Some(at_start)).scan_cheap(&environment, NOW);
+        let outcomes = Detectors::new(None, Some(at_start), None).scan_cheap(&environment, NOW);
         let Some((_, outcome)) = outcomes
             .iter()
             .find(|(detector, _)| *detector == RUNTIME_BASELINE)

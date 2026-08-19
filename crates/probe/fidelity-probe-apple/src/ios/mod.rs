@@ -19,7 +19,7 @@ mod lifecycle;
 mod tracer;
 
 use fidelity_core::{
-    Baseline, Device, Emulation, Environment, Identity, Injection, Lifecycle, Tracer,
+    Baseline, Device, Dispatch, Emulation, Environment, Identity, Injection, Lifecycle, Tracer,
 };
 use fidelity_types::Platform;
 
@@ -74,10 +74,27 @@ impl Device for IosEnvironment {}
 
 // iOS can answer `emulation`, and no code exists yet. Apple ships no way to
 // run iOS in a virtual machine, and a commercial service does exactly that and
-// sells it to anybody who studies an application, so the question applies. The
-// macOS reader stays macOS only until a measurement states what an iOS kernel
-// reports. It waits for a control, because no measurement means no detector.
+// sells it to anybody who studies an application, so the question applies.
+//
+// The macOS reader stays macOS only, and a measurement decided that rather
+// than caution. Measured on 2026-08-19 in an iOS 18.5 simulator: a process
+// there reads the kernel of the Mac that hosts it, so `kern.hv_vmm_present`,
+// `hw.machine`, and `hw.model` each report what the Mac reports and none of
+// them describes the simulator. A probe that took that value would state a
+// clean result about a system it never read.
+//
+// The simulator is reachable and a device is not, so any rule that separated
+// the two would rest on what this project believes a device reports. It waits
+// for a device, because no measurement means no detector.
 impl Emulation for IosEnvironment {}
+
+// iOS can answer `dispatch`, and no code exists yet. A hook that rewrites a
+// lazy or non-lazy symbol pointer of the main image redirects a call, and the
+// pointer table is bounded and readable, so the question applies. The
+// gigabytes that stop `injection` do not apply here, because this reads one
+// table rather than counting memory. It waits for a measurement of a clean
+// Apple table. See `docs/plan/04-detectors-and-platforms.md`.
+impl Dispatch for IosEnvironment {}
 
 #[cfg(test)]
 mod tests {

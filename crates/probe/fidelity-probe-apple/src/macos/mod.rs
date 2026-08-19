@@ -11,7 +11,7 @@ mod lifecycle;
 mod tracer;
 
 use fidelity_core::{
-    Baseline, Device, Emulation, Environment, Identity, Injection, Lifecycle, Tracer,
+    Baseline, Device, Dispatch, Emulation, Environment, Identity, Injection, Lifecycle, Tracer,
 };
 use fidelity_types::Platform;
 
@@ -65,6 +65,14 @@ impl Injection for MacEnvironment {}
 // grants that user administrator rights by design. There is no such boundary
 // to lose, so the question does not apply rather than waiting for code.
 impl Device for MacEnvironment {}
+
+// macOS can answer `dispatch`, and no code exists yet. A hook that rewrites a
+// lazy or non-lazy symbol pointer of the main image redirects a call, and the
+// pointer table is bounded and readable, so the question applies. The
+// gigabytes that stop `injection` do not apply here, because this reads one
+// table rather than counting memory. It waits for a measurement of a clean
+// Apple table. See `docs/plan/04-detectors-and-platforms.md`.
+impl Dispatch for MacEnvironment {}
 
 #[cfg(test)]
 mod tests {

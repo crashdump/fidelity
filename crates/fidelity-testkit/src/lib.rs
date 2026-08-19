@@ -13,9 +13,9 @@
 use std::sync::{Mutex, PoisonError};
 
 use fidelity_core::{
-    Baseline, CodeIdentity, CodeOrigin, CodeRegions, Device, Emulation, Environment, Identity,
-    IdentityMatch, Injection, Lifecycle, MachineHost, Observation, SystemBuild, Tracer,
-    TracerState,
+    Baseline, CodeIdentity, CodeOrigin, CodeRegions, Device, Dispatch, DispatchTargets, Emulation,
+    Environment, Identity, IdentityMatch, Injection, Lifecycle, MachineHost, Observation,
+    SystemBuild, Tracer, TracerState,
 };
 use fidelity_types::{ExpectedIdentity, Platform};
 
@@ -34,6 +34,7 @@ pub struct FakeEnvironment {
     tracer: Mutex<Script>,
     code_origin: Observation<CodeOrigin>,
     code_regions: Observation<CodeRegions>,
+    dispatch_targets: Observation<DispatchTargets>,
     system_build: Observation<SystemBuild>,
     machine_host: Observation<MachineHost>,
 }
@@ -89,6 +90,7 @@ impl FakeEnvironment {
             }),
             code_origin: Observation::Unsupported { reason: NOT_STATED },
             code_regions: Observation::Unsupported { reason: NOT_STATED },
+            dispatch_targets: Observation::Unsupported { reason: NOT_STATED },
             system_build: Observation::Unsupported { reason: NOT_STATED },
             machine_host: Observation::Unsupported { reason: NOT_STATED },
         }
@@ -160,6 +162,13 @@ impl FakeEnvironment {
         self.code_regions = observation;
         self
     }
+
+    /// States the dispatch targets of the main image.
+    #[must_use]
+    pub fn with_dispatch_targets(mut self, observation: Observation<DispatchTargets>) -> Self {
+        self.dispatch_targets = observation;
+        self
+    }
 }
 
 // A stated environment has no thread to prepare, so the default answers.
@@ -174,6 +183,12 @@ impl Baseline for FakeEnvironment {
 impl Injection for FakeEnvironment {
     fn code_origin(&self) -> Observation<CodeOrigin> {
         self.code_origin.clone()
+    }
+}
+
+impl Dispatch for FakeEnvironment {
+    fn dispatch_targets(&self) -> Observation<DispatchTargets> {
+        self.dispatch_targets.clone()
     }
 }
 

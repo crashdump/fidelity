@@ -16,17 +16,12 @@ This is the central structural difference, and it produces the critique below.
 
 ## The critique of library-form protection
 
-Guardsquare's argument against SDK-based protection applies to Fidelity:
-
-1. Library logic is separate from application code, at both the package level and the function
-   level. The channels between them are few and visible, so an attacker targets the interface.
-2. One build of the library protects every consumer, so a single bypass works everywhere. Open
-   source lowers the cost of writing that bypass.
-
-A boolean check is the weakest part of this shape. An attacker finds every
-`ensure_allowed()` call site by searching for one symbol, then inverts one branch. The answer is to
-make the check produce a value the program needs, so removing it computes a wrong result instead of
-a success. See [ADR-0007](../adr/0007-value-producing-check.md).
+Guardsquare argues against SDK-based protection on two properties of the shape: library logic is
+separate from application code at the package and the function level, so the interface is a target,
+and one build protects every consumer, so one bypass works everywhere. Open source lowers the cost
+of writing that bypass. The argument applies to Fidelity, which is why the
+[security model](../plan/02-security-model.md#attackers) states both properties as its own and
+[ADR-0007](../adr/0007-value-producing-check.md) answers them.
 
 ## Capability comparison
 

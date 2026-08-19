@@ -9,10 +9,12 @@
 //!
 //! # Status
 //!
-//! The `baseline`, `injection`, `tracer`, and `identity` capabilities answer.
+//! Every capability except `device` answers.
 //! `identity` reports platform trust only where the deployment enables
 //! fs-verity, and it reports no signer at all, so `guarded!()` still refuses a
-//! Linux binding. The `identity` module states why.
+//! Linux binding. The `identity` module states why. `dispatch` reads the
+//! dispatch table of the main image, which the toolchain binds fully, so a
+//! later change to one entry is a redirect.
 //!
 //! # Layout
 //!
@@ -29,12 +31,14 @@
 #![cfg(target_os = "linux")]
 
 mod baseline;
+mod dispatch;
+mod emulation;
 mod identity;
 mod injection;
 mod sys;
 mod tracer;
 
-use fidelity_core::{Device, Emulation, Environment, Lifecycle};
+use fidelity_core::{Device, Environment, Lifecycle};
 use fidelity_types::Platform;
 
 /// The Linux view of the running process.
@@ -66,13 +70,6 @@ impl Environment for LinuxEnvironment {
 // host grants that user root by design. A root shell, a permissive policy, and
 // a custom kernel are all ordinary there, so the question does not apply.
 impl Device for LinuxEnvironment {}
-
-// Linux can answer `emulation`, and no code exists yet. The kernel states
-// what runs it, in more than one place. The block is the clean control: this
-// project owns a Linux guest, which is a hostile control, and it owns no bare
-// metal Linux to compare it against. A detector with one control is a
-// detector nobody measured.
-impl Emulation for LinuxEnvironment {}
 
 // Linux asks nothing of the worker thread, so the default answers.
 impl Lifecycle for LinuxEnvironment {}

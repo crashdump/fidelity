@@ -334,6 +334,23 @@ two_seeds() {
 }
 run host two-seeds-two-binaries two_seeds
 
+# The `UiAbuse` pair. This category takes its input from the host, so both
+# halves run anywhere and neither needs a platform. That is not a weaker
+# control: no operating system answers this question, and
+# `docs/plan/04-detectors-and-platforms.md` holds the measurement that decided
+# it. What the pair proves is the whole contract: a runtime that no host
+# reported to states the absence of a report, and one report denies at once.
+interface_clean() {
+    cargo run --quiet --example interface -p fidelity |
+        grep 'ui_abuse.host_report: no scan reached it'
+}
+interface_overlay() {
+    cargo run --quiet --example interface -p fidelity -- overlay |
+        grep 'protected operation: denied'
+}
+
+run host interface-clean interface_clean
+run host interface-overlay interface_overlay
 run host sanitizers "$ROOT/tests/platform/controls/run-sanitizers.sh"
 
 # `05-verification.md` puts the sanitizers on every change and Miri on a
@@ -708,6 +725,25 @@ if [ -n "$LINUX_HOW" ]; then
     baseline_hostile_linux() { linux_late /tmp/delayed.so; }
     baseline_clean_linux() { linux_late ''; }
 
+    # The dispatch pair. `hook.c`, with its shared walk in `dispatch.h`,
+    # rewrites one entry of the main image's dispatch table so a call reaches
+    # another function that already exists. It maps no new executable region,
+    # so the runtime baseline reports clean and only this detector reports it.
+    # The inside form points `memcpy` at `memmove`, which answers every call
+    # correctly, so the subject keeps running.
+    hook_build='cc -O2 -shared -fPIC -o /tmp/hook.so tests/platform/controls/hook.c -lpthread -ldl'
+    dispatch_hostile_linux() {
+        linux "$hook_build &&
+            cargo build --quiet --example redirect -p fidelity &&
+            LD_PRELOAD=/tmp/hook.so FIDELITY_HOOK=inside \
+                /var/tmp/target/debug/examples/redirect" |
+            grep 'DispatchRedirected'
+    }
+    dispatch_clean_linux() {
+        linux 'cargo build --quiet --example redirect -p fidelity &&
+            /var/tmp/target/debug/examples/redirect'
+    }
+
     # The tracer set. `attach.c` is the tracer, in both of its forms, and it
     # needs no capability grant in a guest.
     tracer_clean_linux() {
@@ -731,6 +767,8 @@ if [ -n "$LINUX_HOW" ]; then
     run Linux cost-linux linux cargo run --release --quiet --example cost -p fidelity-probe-linux
     run Linux inject-clean inject_clean
     run Linux inject-hostile inject_hostile
+    run Linux dispatch-hostile-linux dispatch_hostile_linux
+    refute Linux dispatch-clean-linux 'no dispatch target moved after start' dispatch_clean_linux
     run Linux baseline-hostile-linux baseline_hostile_linux
     refute Linux baseline-clean-linux 'no code arrived after start' baseline_clean_linux
     # The same region counts. Linux holds no shared cache, so a system library
@@ -797,6 +835,11 @@ if [ -n "$LINUX_HOW" ]; then
     }
 
     run Linux identity-clean-linux identity_clean_linux
+    machine_guest_linux() {
+        linux 'cargo run --quiet --example machine -p fidelity' |
+            grep 'machine_host: Medium'
+    }
+
     run Linux identity-repackaged-linux identity_repackaged_linux
     if linux 'sudo -n true && command -v fsverity' > /dev/null 2>&1; then
         run Linux verity-linux verity_linux
@@ -809,12 +852,24 @@ if [ -n "$LINUX_HOW" ]; then
     run Linux tracer-attaches-linux tracer_attaches_linux
     run Linux plugin-load-linux plugin_load_linux
     run Linux legitimate-plugin-linux legitimate_plugin_linux
+    # The machine-host control. A guest is a virtual machine, so the detector
+    # must report one there. It takes the guest and it skips on a machine that
+    # already runs Linux, because that machine may sit on the hardware or
+    # inside a monitor and this harness cannot state which. A control that
+    # asserted either answer would assert what nobody measured.
+    if [ "$LINUX_HOW" = "in the guest" ]; then
+        run Linux machine-guest-linux machine_guest_linux
+    else
+        skip Linux machine-guest-linux "this machine runs Linux, and the harness cannot state \
+whether it runs on the hardware or inside a monitor"
+    fi
 else
     for control in linux-probe-tests cost-linux inject-clean inject-hostile \
+        dispatch-hostile-linux dispatch-clean-linux \
         baseline-hostile-linux baseline-clean-linux \
         identity-clean-linux identity-repackaged-linux verity-linux \
         tracer-clean-linux tracer-at-start-linux tracer-attaches-linux \
-        plugin-load-linux legitimate-plugin-linux; do
+        plugin-load-linux legitimate-plugin-linux machine-guest-linux; do
         skip Linux "$control" "this machine runs no Linux, and no guest answers: \
 tests/platform/controls/vm.sh linux start"
     done
@@ -1021,6 +1076,11 @@ if [ -n "$WINDOWS_HOW" ]; then
             grep 'tracer_present: clean'
     }
 
+    machine_guest_windows() {
+        windows 'cargo run --quiet --example machine -p fidelity' |
+            grep 'machine_host: Medium'
+    }
+
     run Windows windows-probe-tests windows_probe_tests
     run Windows cost-windows cost_windows
     # The identity arms anchor a certificate on the machine that runs them, so
@@ -1049,6 +1109,13 @@ takes the guest: tests/platform/controls/vm.sh windows start"
     refute Windows baseline-clean-x86-windows 'no code arrived after start' \
         baseline_clean_x86_windows
     run Windows tracer-clean-x86-windows tracer_clean_x86_windows
+    # The machine-host control, in the shape that the Linux section states.
+    if [ "$WINDOWS_HOW" = "in the guest" ]; then
+        run Windows machine-guest-windows machine_guest_windows
+    else
+        skip Windows machine-guest-windows "this machine runs Windows, and the harness cannot \
+state whether it runs on the hardware or inside a monitor"
+    fi
 else
     if [ "$WINDOWS" = yes ]; then
         WHY="no cl, clang, or gcc on the path, so no control compiles"
@@ -1063,7 +1130,7 @@ tests/platform/controls/vm.sh windows start"
         baseline-hostile-windows baseline-clean-windows \
         tracer-clean-windows tracer-at-start-windows tracer-attaches-windows \
         cost-windows-x86 inject-emulated-x86 baseline-clean-x86-windows \
-        tracer-clean-x86-windows; do
+        tracer-clean-x86-windows machine-guest-windows; do
         skip Windows "$control" "$WHY"
     done
 fi
@@ -1083,7 +1150,7 @@ NDK_CC=$(ls "${ANDROID_HOME:-}"/ndk/*/toolchains/llvm/prebuilt/*/bin/aarch64-lin
 ANDROID_CONTROLS="android-probe-tests cost-android android-instrumented
     android-repackage tracer-clean-android tracer-at-start-android
     tracer-attaches-android baseline-clean-android baseline-hostile-android
-    inject-clean-android inject-hostile-android"
+    inject-clean-android inject-hostile-android machine-emulator-android"
 
 if [ -z "$(adb devices 2>/dev/null | awk 'NR > 1 && $2 == "device" { print $1 }')" ]; then
     for control in $ANDROID_CONTROLS; do
@@ -1174,6 +1241,14 @@ else
             grep 'unaccounted_code: Medium'
     }
 
+    # The machine-host control. Every Android system that this project reaches
+    # is an emulator, so the detector must report one. The clean half needs a
+    # physical device, and README.md holds that gap.
+    machine_emulator_android() {
+        android_example machine machine &&
+            adb shell /data/local/tmp/machine | grep 'machine_host: Medium'
+    }
+
     run Android android-probe-tests android test -p fidelity-probe-android
     run Android cost-android android run --release --quiet --example cost -p fidelity-probe-android
     run Android android-instrumented instrumented connectedDebugAndroidTest
@@ -1188,6 +1263,7 @@ else
     run Android baseline-hostile-android baseline_hostile_android
     run Android inject-clean-android inject_clean_android
     run Android inject-hostile-android inject_hostile_android
+    run Android machine-emulator-android machine_emulator_android
 fi
 
 # The image-identity mechanism. It signs a small archive and reads the
@@ -1205,9 +1281,13 @@ fi
 # Each one needs a debugger to attach, an agent to load, a judgment about a
 # region count, or a second machine. None of them gives a pass or a fail on its
 # own, so a person runs it and records what happened.
+#
+# The last one needs a second monitor, and a container runtime supplies it.
+# `tests/platform/README.md` states the two commands and what they reported.
 manual macOS controls/phases.m "the late legitimate loads table"
 manual macOS controls/qos-drift.c "the worker quality of service note in 07-state-and-budgets.md"
 manual iOS controls/entitle.c "the iOS identity rows, and the two recorded signatures"
+manual Linux machine-paravirtual-linux "the second Linux arm of the machine-host row"
 
 printf '\n'
 if [ "$FAILED" -eq 0 ]; then

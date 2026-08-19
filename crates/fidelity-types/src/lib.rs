@@ -22,6 +22,7 @@ mod detector;
 mod evidence;
 mod finding;
 mod identity;
+mod interface;
 mod outcome;
 mod snapshot;
 mod strength;
@@ -35,6 +36,7 @@ pub use identity::{
     AuthenticodeThumbprint, CertificateSha256, Choice, CodeRequirement, ContentDigest,
     ExpectedIdentity, IdentityError, Platform, TeamIdentifier,
 };
+pub use interface::UiObservation;
 pub use outcome::Outcome;
 pub use snapshot::{DetectorState, Snapshot};
 pub use strength::SignalStrength;

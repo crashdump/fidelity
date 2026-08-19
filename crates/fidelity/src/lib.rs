@@ -73,7 +73,7 @@
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 mod backend;
-mod builder;
+pub(crate) mod builder;
 mod error;
 mod handle;
 mod secret;
@@ -112,6 +112,7 @@ pub use fidelity_types::{
     Action, AuthenticodeThumbprint, BoundedText, Category, CategorySet, CertificateSha256, Choice,
     CodeRequirement, ContentDigest, Detector, DetectorState, Evidence, ExpectedIdentity, Finding,
     IdentityError, MAX_EVIDENCE_BYTES, Outcome, Platform, SignalStrength, Snapshot, TeamIdentifier,
+    UiObservation,
 };
 
 /// Creates a builder for the process-wide runtime.

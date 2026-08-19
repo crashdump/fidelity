@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use fidelity_core::{Environment, Observation};
 use fidelity_detect::Detectors;
-use fidelity_engine::{Hooks, Policy, State, Worker, now_unix_ms};
+use fidelity_engine::{Hooks, Pending, Policy, State, Worker, now_unix_ms};
 use fidelity_types::{Action, Category, ExpectedIdentity, Finding, Platform, SignalStrength};
 
 use crate::handle::Runtime;
@@ -222,10 +222,25 @@ impl Builder {
             Observation::Unsupported { .. } | Observation::Failed { .. } => None,
         };
 
-        let detectors = Detectors::new(self.identity, baseline);
+        // The dispatch snapshot is captured here for the same reason. A later
+        // scan compares each call target of the main image against it, and a
+        // platform that answers nothing leaves it absent.
+        let dispatch = match environment.dispatch_targets() {
+            Observation::Fact(targets) => Some(targets),
+            Observation::Unsupported { .. } | Observation::Failed { .. } => None,
+        };
+
+        let detectors = Detectors::new(self.identity, baseline, dispatch);
         let state = Arc::new(Mutex::new(State::new(fidelity_detect::INVENTORY)));
+        // The handle records a host report and the worker applies what only it
+        // may apply, so both hold this queue.
+        let pending = Arc::new(Pending::new());
         let outcomes = detectors.scan_cheap(&*environment, now_unix_ms());
         let initial = fidelity_engine::record(&state, &self.policy, HOOKS, outcomes);
+        // The handle applies the same policy to a host report, so it keeps a
+        // copy. One policy is fixed at `start()` and never changes, so the two
+        // cannot drift.
+        let policy = self.policy.clone();
 
         // Step 5 starts the worker, which runs until the process stops.
         let worker = Worker::new(
@@ -235,13 +250,14 @@ impl Builder {
             environment,
             self.callback,
             HOOKS,
+            Arc::clone(&pending),
         );
         // The handle is built before the thread exists. The initial scan can
         // qualify a callback or a `Crash`, and the lifecycle in
         // `docs/plan/03-runtime-and-api.md` puts both after `start()` builds
         // the handle. A worker that starts first races that construction, so a
         // `Crash` could stop the process before any handle existed.
-        let handle = Handle::new(Arc::new(Runtime::new(state, identity)));
+        let handle = Handle::new(Arc::new(Runtime::new(state, identity, policy, pending)));
 
         std::thread::Builder::new()
             .name(String::from("fidelity"))
@@ -318,11 +334,16 @@ const HOOKS: Hooks = Hooks {
     full_scan_complete: crate::mark_full_scan_complete,
 };
 
+/// The same hooks, for the handle, which records a host report.
+pub(crate) const fn hooks() -> Hooks {
+    HOOKS
+}
+
 #[cfg(test)]
 mod tests {
     use fidelity_core::{
-        Baseline, CodeIdentity, Device, Emulation, Environment, Identity, Injection, Lifecycle,
-        Observation, PlatformTrust, Signer, Tracer,
+        Baseline, CodeIdentity, Device, Dispatch, Emulation, Environment, Identity, Injection,
+        Lifecycle, Observation, PlatformTrust, Signer, Tracer,
     };
     use fidelity_types::{Action, Choice, ExpectedIdentity, Platform, SignalStrength};
 
@@ -340,6 +361,7 @@ mod tests {
     impl Tracer for Bare {}
     impl Injection for Bare {}
     impl Baseline for Bare {}
+    impl Dispatch for Bare {}
     impl Device for Bare {}
     impl Emulation for Bare {}
 
@@ -364,6 +386,7 @@ mod tests {
     impl Tracer for Signed {}
     impl Injection for Signed {}
     impl Baseline for Signed {}
+    impl Dispatch for Signed {}
     impl Device for Signed {}
     impl Emulation for Signed {}
 

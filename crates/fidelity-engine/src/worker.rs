@@ -8,7 +8,7 @@ use fidelity_types::{
     Action, BoundedText, Category, Detector, Evidence, Finding, Outcome, SignalStrength,
 };
 
-use crate::{Policy, State};
+use crate::{Pending, Policy, State};
 
 /// The host callback that a qualifying finding invokes.
 pub type Callback = Box<dyn FnMut(&Finding) + Send + 'static>;
@@ -132,6 +132,7 @@ pub struct Worker {
     environment: Box<dyn Environment>,
     callback: Option<Callback>,
     hooks: Hooks,
+    pending: Arc<Pending>,
     jitter: u64,
     cycle: Duration,
 }
@@ -157,6 +158,7 @@ impl Worker {
         environment: Box<dyn Environment>,
         callback: Option<Callback>,
         hooks: Hooks,
+        pending: Arc<Pending>,
     ) -> Self {
         Self {
             state,
@@ -165,6 +167,7 @@ impl Worker {
             environment,
             callback,
             hooks,
+            pending,
             jitter: now_unix_ms() | 1,
             cycle: CYCLE,
         }
@@ -211,6 +214,9 @@ impl Worker {
             "the worker runs, and it stops when the process stops"
         );
         loop {
+            // A host report already latched its own denial, so this applies
+            // what only the worker may apply: the host callback, and a stop.
+            self.dispatch(self.pending.take());
             let outcomes = self.detectors.scan_all(&*self.environment, now_unix_ms());
             self.apply(outcomes);
             (self.hooks.full_scan_complete)();
@@ -230,6 +236,7 @@ impl Worker {
 
     /// Runs one cycle, for a test that must not loop.
     pub fn run_once(&mut self) {
+        self.dispatch(self.pending.take());
         let outcomes = self.detectors.scan_all(&*self.environment, now_unix_ms());
         self.apply(outcomes);
         (self.hooks.full_scan_complete)();
@@ -315,8 +322,8 @@ mod tests {
     use std::time::Duration;
 
     use fidelity_core::{
-        Baseline, Device, Emulation, Environment, Identity, IdentityMatch, Injection, Lifecycle,
-        Observation, Tracer, TracerState, WorkerSetup,
+        Baseline, Device, Dispatch, Emulation, Environment, Identity, IdentityMatch, Injection,
+        Lifecycle, Observation, Tracer, TracerState, WorkerSetup,
     };
     use fidelity_detect::{
         Detectors, EXPECTED_IDENTITY, INVENTORY, PLATFORM_TRUST, TRACER_PRESENT,
@@ -328,7 +335,7 @@ mod tests {
     };
 
     use super::{Hooks, Worker};
-    use crate::{Policy, State};
+    use crate::{Pending, Policy, State};
 
     fn locked(state: &Arc<Mutex<State>>) -> MutexGuard<'_, State> {
         state.lock().unwrap_or_else(PoisonError::into_inner)
@@ -358,10 +365,11 @@ mod tests {
         Worker::new(
             Arc::clone(state),
             policy,
-            Detectors::new(expected, None),
+            Detectors::new(expected, None, None),
             Box::new(environment),
             None,
             hooks,
+            Arc::new(Pending::new()),
         )
         .with_cycle(Duration::from_millis(1))
     }
@@ -465,10 +473,11 @@ mod tests {
         let mut worker = Worker::new(
             Arc::clone(&state),
             policy,
-            Detectors::new(Some(expected), None),
+            Detectors::new(Some(expected), None, None),
             Box::new(environment),
             Some(Box::new(|_| panic!("the host callback fails"))),
             Hooks::detached(),
+            Arc::new(Pending::new()),
         );
         worker.run_once();
         // The second cycle proves that the worker survived the first.
@@ -500,7 +509,7 @@ mod tests {
         Worker::new(
             Arc::clone(&state),
             policy,
-            Detectors::new(Some(expected), None),
+            Detectors::new(Some(expected), None, None),
             Box::new(environment),
             Some(Box::new(move |_| {
                 let snapshot = reader
@@ -511,6 +520,7 @@ mod tests {
                     snapshot.detectors().len();
             })),
             Hooks::detached(),
+            Arc::new(Pending::new()),
         )
         .run_once();
 
@@ -552,6 +562,7 @@ mod tests {
     impl Tracer for Counting {}
     impl Injection for Counting {}
     impl Baseline for Counting {}
+    impl Dispatch for Counting {}
 
     impl Device for Counting {}
     impl Emulation for Counting {}
@@ -579,10 +590,11 @@ mod tests {
         let worker = Worker::new(
             Arc::clone(&state),
             Policy::new(),
-            Detectors::new(None, None),
+            Detectors::new(None, None, None),
             Box::new(Counting),
             None,
             Hooks::detached(),
+            Arc::new(Pending::new()),
         );
 
         assert_eq!(
@@ -695,7 +707,7 @@ mod tests {
 #[cfg(all(test, feature = "tracing"))]
 mod diagnostics {
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Mutex, Once};
 
     use fidelity_core::{IdentityMatch, Observation};
     use fidelity_detect::{Detectors, INVENTORY};
@@ -708,7 +720,7 @@ mod diagnostics {
     use tracing::{Event, Metadata, Subscriber};
 
     use super::{Hooks, Worker};
-    use crate::{Policy, State};
+    use crate::{Pending, Policy, State};
 
     /// How many events this subscriber received.
     static EVENTS: AtomicUsize = AtomicUsize::new(0);
@@ -739,9 +751,60 @@ mod diagnostics {
         fn exit(&self, _span: &Id) {}
     }
 
+    /// A subscriber that enables every call site and counts nothing.
+    ///
+    /// It exists to remove an order dependency, and a measurement found that
+    /// dependency rather than a reading of the library. `tracing` caches the
+    /// interest of a call site the first time any thread reaches it, and that
+    /// computation reads the subscribers a host installed for the whole
+    /// process. A subscriber that one test installs for its own thread is
+    /// invisible to it. So another test that reaches the same call site first
+    /// can cache "this site is never enabled", and the test below then sees no
+    /// event at all.
+    ///
+    /// Measured on 2026-08-19, with 16 test threads. The binary failed 5 times
+    /// in 200 runs without this subscriber, and never once with a single test
+    /// thread, which is the order that makes the diagnostics test reach the
+    /// site first. `tracing::callsite::rebuild_interest_cache` alone still
+    /// failed 3 times in 100 runs, and this subscriber alone failed none in
+    /// 100, so the fix is the install and not the rebuild.
+    ///
+    /// This subscriber counts nothing, so the count below still measures the
+    /// worker of that test and no other.
+    #[derive(Debug)]
+    struct Enable;
+
+    impl Subscriber for Enable {
+        fn enabled(&self, _metadata: &Metadata<'_>) -> bool {
+            true
+        }
+
+        fn new_span(&self, _span: &Attributes<'_>) -> Id {
+            Id::from_u64(1)
+        }
+
+        fn record(&self, _span: &Id, _values: &Record<'_>) {}
+
+        fn record_follows_from(&self, _span: &Id, _follows: &Id) {}
+
+        fn event(&self, _event: &Event<'_>) {}
+
+        fn enter(&self, _span: &Id) {}
+
+        fn exit(&self, _span: &Id) {}
+    }
+
+    /// Installs the process-wide subscriber once, whichever test runs first.
+    static ENABLED: Once = Once::new();
+
     #[test]
     fn a_qualifying_finding_reaches_the_subscriber_that_the_host_installed()
     -> Result<(), IdentityError> {
+        // The install has to happen before the count starts.
+        ENABLED.call_once(|| {
+            drop(tracing::subscriber::set_global_default(Enable));
+        });
+
         let before = EVENTS.load(Ordering::Relaxed);
         let guard = tracing::subscriber::set_default(Counter);
 
@@ -758,10 +821,11 @@ mod diagnostics {
         Worker::new(
             Arc::clone(&state),
             policy,
-            Detectors::new(Some(expected), None),
+            Detectors::new(Some(expected), None, None),
             Box::new(environment),
             None,
             Hooks::detached(),
+            Arc::new(Pending::new()),
         )
         .run_once();
 

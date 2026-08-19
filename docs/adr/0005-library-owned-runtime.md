@@ -24,6 +24,5 @@ detection when a scope exits.
 - The engine carries no Tokio dependency.
 - Protection cannot be turned off through the API. A dropped handle changes nothing.
 - The `Deny` latch lives in the facade, which is the layer that holds the single-runtime rule.
-- A mobile scan follows the application lifecycle. Fidelity needs no background service and no
-  special entitlement.
+- A mobile scan follows the application lifecycle.
 - Deterministic tests need a separate path. Engine and testkit code may create isolated runtimes.

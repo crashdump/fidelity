@@ -12,11 +12,20 @@ use crate::{NO_PROBE, Observation};
 /// identifies ordinary Hyper-V, WSL2, and Windows Sandbox. A kernel that
 /// states its own machine answers the question that the category asks.
 ///
-/// A platform may run a system inside a machine in more than one way. This
-/// capability reports one of them, so a platform that gains a second
-/// independent source adds a separate detector rather than a second answer
-/// here. That is the same rule that [`tracer`](crate::capability::tracer) and
-/// [`device`](crate::capability::device) follow.
+/// A platform may hold more than one source, and what it does with the second
+/// one depends on what the two can prove about each other.
+///
+/// Two sources that each answer the whole question are independent, and a
+/// disagreement between them is itself direct evidence that something answers
+/// for the operating system. Such a platform adds a separate detector, so the
+/// host sees both answers. [`tracer`](crate::capability::tracer) and
+/// [`device`](crate::capability::device) follow that rule.
+///
+/// Two sources that each cover part of the question are not independent, and
+/// this capability reads both. Linux is the case: the firmware names the
+/// machine, and a monitor that publishes no firmware identity still needs the
+/// paravirtual bus. Neither one states that the other is absent, so the two
+/// can never disagree and a second detector would report nothing new.
 pub trait Emulation {
     /// What the system reports about the machine that runs it.
     fn machine_host(&self) -> Observation<MachineHost> {

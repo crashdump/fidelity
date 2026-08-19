@@ -205,6 +205,14 @@ fn detectors() -> BTreeSet<String> {
     found
 }
 
+/// What the capability column reads for the one detector that no probe answers.
+///
+/// `UiAbuse` has no capability and no platform row, because no operating system
+/// answers the question. `docs/plan/04-detectors-and-platforms.md` holds the
+/// measurement, and `06-delivery.md` states that the matrix therefore skips it.
+/// The rules below exempt this row by name, so nothing else can slip past them.
+const HOST_FED: &str = "none, the host reports";
+
 #[test]
 fn every_implemented_capability_holds_a_record_row() {
     // The rule that matters. A `yes` cell states that the platform answers, and
@@ -270,6 +278,9 @@ fn every_record_row_names_a_system_that_the_matrix_holds() {
     // The record and the matrix have to use one vocabulary, or the rule above
     // silently matches nothing.
     for row in record() {
+        if row.capability == HOST_FED {
+            continue;
+        }
         assert!(
             SYSTEMS.contains(&row.system.as_str()),
             "the test record names the system {}, and the matrix holds {SYSTEMS:?}",
@@ -284,13 +295,25 @@ fn every_record_row_names_a_capability_that_the_matrix_holds() {
         .into_iter()
         .map(|(capability, _)| capability)
         .collect();
+    let mut host_fed = 0_usize;
     for row in record() {
+        if row.capability == HOST_FED {
+            host_fed += 1;
+            continue;
+        }
         assert!(
             known.contains(&row.capability),
             "the test record names the {} capability, and no matrix cell reads yes for it",
             row.capability
         );
     }
+    // The exemption is one row, and it must stay one row. A second one would
+    // mean a category quietly left the platform axis without a measurement
+    // saying that no operating system answers it.
+    assert_eq!(
+        host_fed, 1,
+        "exactly one record row takes a host report, and the matrix holds no cell for it"
+    );
 }
 
 #[test]

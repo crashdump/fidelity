@@ -9,6 +9,8 @@
 //!
 //! One file per operating-system interface.
 
+pub(crate) mod dispatch;
+pub(crate) mod dmi;
 pub(crate) mod maps;
 pub(crate) mod status;
 pub(crate) mod verity;

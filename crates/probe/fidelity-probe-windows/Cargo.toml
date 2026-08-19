@@ -18,6 +18,7 @@ targets = []
 [target.'cfg(target_os = "windows")'.dependencies]
 fidelity-cipher.workspace = true
 fidelity-core.workspace = true
+fidelity-formats.workspace = true
 fidelity-types.workspace = true
 
 [lints]

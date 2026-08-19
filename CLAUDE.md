@@ -28,14 +28,19 @@ clarity and record the exception in section 3.
 `fidelity` is an open-source Rust library. It detects changes to an application's runtime
 environment and applies a response that the host application selects.
 
-Five platforms run, each with real clean and hostile controls. All five compare executable memory
-against a baseline that `start()` captured, and all five read tracer state. macOS adds image
-identity, `guarded!()`, and the machine host, and Linux, Android, and Windows add unaccounted code.
-The iOS results come from the simulator, so a device has still to confirm them. The Windows results
-come from the QEMU guest that `tests/platform/vm/windows/` builds, and the Windows identity controls
-sign the subject in that guest, because the tier reads the signature of the running image. The
-macOS machine-host control needs a guest too, and `tests/platform/vm/macos/` builds that one. No
-platform is supported yet, because that needs the full release tests.
+Every v1 category holds a detector. Five platforms run, each with real clean and hostile controls.
+All five compare executable memory against a baseline that `start()` captured, and all five read
+tracer state. Four read the machine that runs the system, and iOS is the one that does not. macOS
+adds `guarded!()`, and Linux, Android, and Windows add unaccounted code. Linux also reads the
+dispatch table of the main image, so a redirected call is a finding that the baseline misses.
+`UiAbuse` takes a host report and reads no operating system, so it sits off the platform axis and the
+coverage matrix holds no row for it. The iOS results come from the simulator, so a device has
+still to confirm them. The Windows results come from the QEMU guest that
+`tests/platform/vm/windows/` builds, and the Windows identity controls sign the subject in that
+guest, because the tier reads the signature of the running image. The macOS machine-host control
+needs a guest too, and `tests/platform/vm/macos/` builds that one. Linux, Windows, and Android hold
+the hostile machine-host control alone, because every control of those three runs in a guest or an
+emulator. No platform is supported yet, because that needs the full release tests.
 
 Capabilities are traits, in `fidelity-core/src/capability/`. Operating systems are crates, under
 `crates/probe/`. `docs/plan/06-delivery.md` holds both axes and the shape that every probe crate
@@ -129,7 +134,7 @@ addition and a size trigger conflict, the addition lands and the trigger moves.
 | Path | Role | Size trigger |
 |---|---|---|
 | `README.md` | What the library is, and the first example | 80 lines |
-| `docs/plan/` | Normative specification, 8 files | 380 lines per file |
+| `docs/plan/` | Normative specification, 8 files | 500 lines per file |
 | `docs/adr/` | One enduring constraint and its reason | 50 lines per file |
 | `docs/research/` | Non-normative notes: operating systems, and the vendor survey | 150 lines per file |
 
@@ -138,8 +143,13 @@ change: does this file still hold one role, or did it absorb a fact that another
 answer keeps every line, and it raises the number in the table. Say which answer you reached.
 
 Run `wc -l README.md CLAUDE.md docs/plan/*.md docs/adr/*.md docs/research/*.md` to see the corpus.
-It is about 1700 lines. Read the whole set for duplication when it passes 2200, because many files
+It is about 2340 lines. Read the whole set for duplication when it passes 2600, because many files
 that each grow a little is the one kind of bloat a per-file trigger cannot see.
+
+The 2200 reading came on 2026-08-19, and that pass ran the same day. It removed six duplicated facts
+and repaired eight wraps, and it found four stale claims that no per-file trigger could see, because
+each one sat in a file that a change to another file had falsified. That is the value of the pass:
+duplication is what it looks for, and a contradiction is what it finds.
 
 ### What earns a line
 

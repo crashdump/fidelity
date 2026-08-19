@@ -17,10 +17,13 @@ work item. A `Crash` from the initial scan therefore stops the process immediate
 returns. A `Deny` latch is active as soon as `start()` returns, so the first `ensure_allowed()` call
 can fail.
 
-The initial scan runs only the detectors whose probes are bounded and cheap: image identity, the
-runtime baseline, and tracer state. Root, jailbreak, emulator, UI, and loopback detectors run on the
-worker's first cycle, because they cost too much on the caller's thread. The latch at `start()`
-therefore covers the synchronous set only.
+The initial scan runs only the detectors whose probes are bounded and cheap. A detector that costs
+too much on the caller's thread runs on the worker's first cycle instead, and the latch at `start()`
+then covers the synchronous set only. Every detector that exists today is cheap enough, and a
+measurement says so rather than a judgment. The
+[measured cost](07-state-and-budgets.md#measured-cost) holds every read and every whole cycle. So
+the two sets are one set today, and the split stays for the first detector that is not. A loopback
+probe is the expected one.
 
 A second `start()` returns `StartError::AlreadyRunning`. The handle is cloneable, and clones refer
 to the same runtime and state. The runtime then runs until the process stops. There is no public way
@@ -45,6 +48,10 @@ covers every target, so the configuration cross-compiles. See the
 Android needs the virtual machine for its Java APIs, and the probe finds it, so the host supplies
 nothing and the configuration gains no Android-only field. See
 [delivery](06-delivery.md#engineering-constraints).
+
+`Handle::report_ui_abuse(UiObservation)` takes what the host observed on its own window. It is the
+one input that arrives after `start()`, because `UiAbuse` is the one category that no operating
+system answers. See [the user interface](04-detectors-and-platforms.md#the-user-interface).
 
 `deny_until_first_full_scan()` denies until the worker completes its first full cycle. It closes
 the startup window in the [security model](02-security-model.md#deny-is-cooperative), and it is off

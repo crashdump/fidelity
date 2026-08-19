@@ -10,9 +10,9 @@
 //! reads the bytes through its own `sys` boundary, then calls a reader here.
 //! See [delivery](../../../docs/plan/06-delivery.md).
 //!
-//! One module per format. `procfs` serves Linux and Android, and `macho`
-//! serves macOS and iOS, which is the second reason a shared crate beats a
-//! module inside one platform crate.
+//! One module per format. `procfs` serves Linux and Android, `macho` serves
+//! macOS and iOS, and `smbios` serves Linux and Windows, which is the second
+//! reason a shared crate beats a module inside one platform crate.
 //!
 //! This crate is an internal implementation detail of Fidelity. It carries no
 //! compatibility promise. The `fidelity` crate is the supported surface.
@@ -22,3 +22,4 @@
 pub mod apk;
 pub mod macho;
 pub mod procfs;
+pub mod smbios;

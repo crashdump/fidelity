@@ -32,10 +32,12 @@ macro_rules! diagnostic {
     };
 }
 
+mod pending;
 mod policy;
 mod state;
 mod worker;
 
+pub use pending::Pending;
 pub use policy::Policy;
 pub use state::State;
 pub use worker::{Callback, Hooks, Worker, now_unix_ms, record};

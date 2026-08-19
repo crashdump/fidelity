@@ -78,7 +78,7 @@ Static root paths, build properties, package names, and port numbers are support
 Remote Play Integrity, or another attestation service, belongs to the host, not to Fidelity.
 
 **A library reaches an application `Context` on its own, and the route is not a supported one.** The
-`interface` capability needs a system service, a system service needs a `Context`, and
+`UiAbuse` category needs a system service, a system service needs a `Context`, and
 [delivery](../plan/06-delivery.md) states that the public API gains no Android-only field. Measured
 2026-08-13 on two images, Android 36 with `release-keys` and Android 37 with `dev-keys`:
 `ActivityThread.currentApplication()` and `AppGlobals.getInitialApplication()` both return the
@@ -91,6 +91,16 @@ reports the change. Weigh that against `JNI_GetCreatedJavaVMs`, which the probe 
 which `libnativehelper.so` exports as a documented interface. The two are not the same kind of
 dependency. This also means the `identity` route could have used `PackageManager`, and it does not
 need to: the archive walk holds, and it takes no greylist.
+
+**What that `Context` then reaches decides the category, and it splits in two.** Measured on
+Android 37, 2026-08-19. `WindowManager` declares 41 methods, and only `addScreenRecordingCallback`
+and its remover touch this question, so no interface states that another application draws above
+this one. That evidence is `MotionEvent.FLAG_WINDOW_IS_OBSCURED`, which reaches a `View` that the
+host owns. The screen-recording interface is different: it registers from an application context
+with `DETECT_SCREEN_RECORDING`, and the SDK source states its anchor as any activity of the
+registering uid, so a library inside the host process reads what the host reads. It needs API 35
+against a floor of 34. Two package lists stay weak: a clean emulator enables no accessibility
+service and holds 17 packages that request `SYSTEM_ALERT_WINDOW`, nearly all of them Google's own.
 
 Primary starting points: [Android security best practices](https://developer.android.com/privacy-and-security/security-best-practices),
 [Android app signing](https://developer.android.com/studio/publish/app-signing), and

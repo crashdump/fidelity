@@ -9,7 +9,7 @@
 //!
 //! # Status
 //!
-//! The `baseline`, `injection`, `tracer`, and `identity` capabilities answer.
+//! Every capability except `device` answers.
 //!
 //! No release calls this platform supported. That label needs a real clean and
 //! a real hostile control for every capability above, and
@@ -26,12 +26,13 @@
 #![cfg(target_os = "windows")]
 
 mod baseline;
+mod emulation;
 mod identity;
 mod injection;
 mod sys;
 mod tracer;
 
-use fidelity_core::{Device, Emulation, Environment, Lifecycle};
+use fidelity_core::{Device, Dispatch, Environment, Lifecycle};
 use fidelity_types::Platform;
 
 /// The Windows view of the running process.
@@ -64,12 +65,11 @@ impl Environment for WindowsEnvironment {
 // rather than waiting for code.
 impl Device for WindowsEnvironment {}
 
-// Windows can answer `emulation`, and no code exists yet. Two things block it.
-// The plan excludes the processor flag, because ordinary VBS, Hyper-V, WSL2,
-// and Windows Sandbox all report it, so another mechanism has to be chosen and
-// measured. And every Windows measurement here comes from a guest, so this
-// platform holds a hostile control and no clean one.
-impl Emulation for WindowsEnvironment {}
+// Windows can answer `dispatch`, and no code exists yet. An import address
+// table redirect points a call at another address, and reading the table
+// answers it. The plan holds the cell as `plan`. See
+// `docs/plan/04-detectors-and-platforms.md`.
+impl Dispatch for WindowsEnvironment {}
 
 // Windows asks nothing of the worker thread, so the default answers.
 impl Lifecycle for WindowsEnvironment {}

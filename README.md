@@ -5,14 +5,17 @@ environment, and it applies a response that the host selects.
 
 > **Status:** five platforms run, each with real clean and hostile controls. All five answer image
 > identity, compare executable memory against a baseline that `start()` captured, and read tracer
-> state. Windows, Linux, and Android add unaccounted code, Android adds device compromise, and
-> macOS reports whether a virtual machine monitor runs the system. The iOS results come from the
-> simulator, and the Windows results come from a virtual machine. A device and a physical host have
-> still to confirm those two. Every run on the development machine
-> used ARM64, and the gate runs the same harness on x86_64 and ARM64 runners for Linux and Windows.
-> macOS is ARM64 only, and no Intel Mac is in scope. One detector reports on every clean x64
-> Windows process: see [the test record](tests/platform/README.md#the-second-architecture). No
-> platform counts as supported until its full release tests pass.
+> state. Windows, Linux, and Android add unaccounted code, and Android adds device compromise. Linux
+> also reads the dispatch table of the main image, so a redirected call is a finding. Four
+> report whether a virtual machine monitor runs the system, and iOS is the one that does not.
+> The iOS results come from the simulator, and the Windows results come from a virtual machine. A
+> device and a physical host have still to confirm those two, and a physical host is also what the
+> clean half of the machine-host question needs on Linux, Windows, and Android. Every run on the
+> development machine used ARM64, and the gate runs the same harness on x86_64 and ARM64 runners for
+> Linux and Windows. macOS is ARM64 only, and no Intel Mac is in scope. One detector reports on
+> every clean x64 Windows process: see
+> [the test record](tests/platform/README.md#the-second-architecture). No platform counts as
+> supported until its full release tests pass.
 
 | Fidelity is | Fidelity is not |
 |---|---|
@@ -23,6 +26,11 @@ environment, and it applies a response that the host selects.
 The v1 categories are integrity, debugging, instrumentation, device compromise, virtualization, and
 UI abuse. By default, every category reports a high-strength finding. An application can instead
 deny protected operations, invoke a callback, or terminate the current process.
+
+Five of the six read the operating system. UI abuse is the one that cannot, and a measurement
+decided that: no interface states that another application draws above this one, and the flag that
+states it arrives on a touch that a view the host owns receives. So the host reads it and calls
+`report_ui_abuse()`, and Fidelity decides the strength and the action.
 
 The Rust API is:
 

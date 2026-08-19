@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex, PoisonError};
 
-use fidelity_engine::State;
-use fidelity_types::{Category, Snapshot};
+use fidelity_engine::{Pending, Policy, State, now_unix_ms};
+use fidelity_types::{Category, Snapshot, UiObservation};
 
 use crate::{Denied, denies_until_full_scan, full_scan_complete, latched_categories};
 
@@ -20,11 +20,28 @@ pub(crate) struct Runtime {
     ///
     /// The slice is empty when the platform reports no signer.
     identity: Box<[u8]>,
+
+    /// The policy that `start()` fixed, so a host report reaches the same
+    /// action that a detector finding of that category reaches.
+    policy: Policy,
+
+    /// The actions of a host report, waiting for the worker.
+    pending: Arc<Pending>,
 }
 
 impl Runtime {
-    pub(crate) const fn new(state: Arc<Mutex<State>>, identity: Box<[u8]>) -> Self {
-        Self { state, identity }
+    pub(crate) const fn new(
+        state: Arc<Mutex<State>>,
+        identity: Box<[u8]>,
+        policy: Policy,
+        pending: Arc<Pending>,
+    ) -> Self {
+        Self {
+            state,
+            identity,
+            policy,
+            pending,
+        }
     }
 }
 
@@ -106,6 +123,57 @@ impl Handle {
         crate::latch(category);
     }
 
+    /// Reports what the host observed on its own user interface.
+    ///
+    /// This is the one category that the operating system does not answer, and
+    /// a measurement settled that rather than a preference. Measured on
+    /// Android 37 on 2026-08-19: no interface states that another application
+    /// draws above this one. The flag that states it arrives on the touch that
+    /// a `View` receives, and a library holds no `View`. So the host reads it
+    /// and reports it here.
+    ///
+    /// The host supplies the fact, and Fidelity decides the strength, the
+    /// evidence, and the action. A host that stated its own strength would be
+    /// stating policy, and
+    /// [detectors and platforms](https://github.com/crashdump/fidelity/blob/main/docs/plan/04-detectors-and-platforms.md)
+    /// keeps that with Fidelity.
+    ///
+    /// The call records the finding at once, so a configured `Deny` latches
+    /// before this returns and [`ensure_allowed`](Handle::ensure_allowed)
+    /// denies immediately. `Callback` and `Crash` run host code, and only the
+    /// worker runs host code, so those two reach the report on the worker's
+    /// next cycle. The initial scan takes that same route.
+    ///
+    /// Calling this repeatedly costs nothing that grows. The state keeps one
+    /// slot for this detector, and the queue that waits for the worker holds
+    /// one cycle of reports and never a history.
+    ///
+    /// The call is safe inside the finding callback.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use fidelity::UiObservation;
+    ///
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let handle = fidelity::new().start()?;
+    ///
+    /// // In the host's own touch handler, when the platform flags the event.
+    /// handle.report_ui_abuse(UiObservation::Overlay);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn report_ui_abuse(&self, observation: UiObservation) {
+        let outcome = fidelity_detect::host_report(observation, now_unix_ms());
+        let qualified = fidelity_engine::record(
+            &self.runtime.state,
+            &self.runtime.policy,
+            crate::builder::hooks(),
+            vec![(fidelity_detect::HOST_REPORT, outcome)],
+        );
+        self.runtime.pending.add(qualified);
+    }
+
     /// Reports whether the worker completed its first full scan.
     ///
     /// The initial scan runs the cheap detectors only, so this stays false
@@ -155,7 +223,7 @@ impl Handle {
 mod tests {
     use std::sync::{Arc, Mutex};
 
-    use fidelity_engine::State;
+    use fidelity_engine::{Pending, Policy, State};
     use fidelity_types::{Category, Detector};
 
     use super::{Denied, Handle, Runtime};
@@ -167,6 +235,8 @@ mod tests {
         Handle::new(Arc::new(Runtime::new(
             Arc::new(Mutex::new(State::new(&[PROBE]))),
             Box::new([]),
+            Policy::new(),
+            Arc::new(Pending::new()),
         )))
     }
 

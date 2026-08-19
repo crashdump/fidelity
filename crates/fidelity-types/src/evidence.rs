@@ -139,12 +139,34 @@ pub enum Evidence {
         detail: BoundedText,
     },
 
+    /// A call target of the main image points somewhere else than at start.
+    ///
+    /// A hook that rewrites one table entry redirects a call to code that
+    /// already exists, so it maps no new region and the runtime baseline
+    /// reports clean. This answers that, because a fully bound table does not
+    /// rewrite its own entries and a change there arrived from outside.
+    DispatchRedirected {
+        /// How many targets changed, and where they sit.
+        detail: BoundedText,
+    },
+
     /// The system states that no vendor released the build that runs now.
     ///
     /// The evidence names the setting that the system left open, because a
     /// build states more than one and a host acts on which one it was.
     DevelopmentBuild {
         /// What the system stated, in text that names no tool and no path.
+        detail: BoundedText,
+    },
+
+    /// The host reported that something reads or drives its user interface.
+    ///
+    /// Every other variant carries what Fidelity read. This one carries what
+    /// the host read, because no interface states that another application
+    /// draws above this one, and the flag that does states it on a touch that
+    /// a `View` receives. A library holds no `View`.
+    InterfaceObserved {
+        /// What the host reported, in text that names no window and no view.
         detail: BoundedText,
     },
 

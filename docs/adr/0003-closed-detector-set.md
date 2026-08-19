@@ -16,7 +16,8 @@ assignments reviewable, and lets Fidelity own cross-platform semantics and verif
 
 ## Consequences
 
-- Categories are the configuration boundary; there is no per-detector public policy.
+- The category stays the configuration boundary, and [ADR-0006](0006-configurable-responses.md)
+  holds why.
 - `fidelity-testkit` may inject observations into isolated core runtimes for tests without becoming
   a production extension mechanism.
 - A new detector requires a Fidelity release, and the same clean and hostile controls as the others.
