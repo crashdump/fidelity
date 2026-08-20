@@ -86,12 +86,26 @@ unsafe extern "C" {
 }
 
 /// The main image, as the callback found it.
-#[derive(Default)]
 struct MainImage {
     found: bool,
     base: u64,
     phdr: *const Phdr,
     phnum: u16,
+}
+
+// The workspace states Rust 1.85, and `Default` for a raw pointer arrived in
+// 1.88. A derive here therefore built on this machine and broke the version
+// that `docs/plan/06-delivery.md` makes normative, on the two Linux targets
+// alone. The `msrv` control found it. Write the empty value by hand instead.
+impl Default for MainImage {
+    fn default() -> Self {
+        Self {
+            found: false,
+            base: 0,
+            phdr: core::ptr::null(),
+            phnum: 0,
+        }
+    }
 }
 
 /// Stops at the first object with an empty name, which is the main program.
