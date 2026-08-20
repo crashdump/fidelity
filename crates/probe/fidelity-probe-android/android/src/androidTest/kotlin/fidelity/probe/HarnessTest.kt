@@ -78,6 +78,34 @@ class HarnessTest {
     }
 
     @Test
+    fun the_probe_reads_the_dispatch_table_of_the_library_of_the_host() {
+        // The decisive test for dispatch on Android. An application forks from
+        // zygote, so its main image is /system/bin/app_process64, which every
+        // application on the device shares and which no call of the host
+        // reaches. The four other platforms read the main image, and Android
+        // must read the library that holds Fidelity instead.
+        //
+        // Only an application process separates the two. In the shell binary
+        // that the Rust unit tests run, the library and the main image are one
+        // image, so that test cannot fail this way.
+        val directory = InstrumentationRegistry.getInstrumentation()
+            .targetContext.applicationInfo.nativeLibraryDir
+        Log.i("fidelity", "the application loads its libraries from $directory")
+        assertEquals(1, Harness.dispatchImageIsThisLibrary())
+    }
+
+    @Test
+    fun the_dispatch_table_of_an_application_process_holds_targets() {
+        // The walk itself, in a process that runs the runtime of Android. A
+        // library with an empty table would report clean forever and prove
+        // nothing, so the count is what states that the detector has something
+        // to compare.
+        val count = Harness.dispatchTargetCount()
+        Log.i("fidelity", "the library of the host holds $count dispatch targets")
+        assertTrue("the probe must report a dispatch table, and it reported $count", count > 0)
+    }
+
+    @Test
     fun the_identity_read_stays_inside_its_recorded_ceiling() {
         // The worker re-reads the identity on every cycle, and on Android that
         // read walks the command line, the mapping table, and the archive. A

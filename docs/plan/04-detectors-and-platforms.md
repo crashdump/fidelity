@@ -252,24 +252,37 @@ else than at start.
 
 | Platform | Source | Hostile control |
 |---|---|---|
-| Linux | the jump-slot relocations of the main image, through `dl_iterate_phdr` | `hook.c`, which points `memcpy` at `memmove` |
+| Linux | the jump-slot relocations of the main image, through `dl_iterate_phdr` | `hook.c`, which points `memcpy` at a forwarder of its own |
+| Android | the jump-slot relocations of the library that holds Fidelity, through `dl_iterate_phdr` | `hook.c`, and an instrumented test for the rule that only an application proves |
 | Windows | the import address table of the main module, through `GetModuleHandle` and the PE headers | `iat-hook-windows.c`, which redirects a startup import from outside |
 | macOS, iOS | the non-lazy symbol pointers of the main image, through `_dyld_get_image_header` and the Mach-O sections | `hook-macos.c`, which points `memcpy` at a forwarder of its own |
 
-The detector reads the main image alone, and the reason is the memory budget. A shared library can
-hold thousands of dispatch targets, and the snapshot must stay bounded. Measured on Linux and
-ARM64: a Rust main image holds about 80, and on Windows and ARM64 a Rust main module holds 71. The
-main image is also the table that an attacker rewrites to intercept the host's own calls, so it is
-the table worth reading first.
+The detector reads one image, and that image is the one that holds the code of the host. It reads
+one alone, and the reason is the memory budget: a shared library can hold thousands of dispatch
+targets, and the snapshot must stay bounded. Measured on ARM64: a Rust main image holds about 80 on
+Linux, a Rust main module holds 71 on Windows, and an Android application library holds 55. That
+image is also the table that an attacker rewrites to intercept the calls of the host, so it is the
+table worth reading first.
+
+On four platforms the host holds Fidelity in its main image, and the probe reads that. Android is
+the one that does not, because an application forks from zygote, so its main image is
+`/system/bin/app_process64`. Every application on the device runs that one system binary, and no
+call of the host reaches its table.
+Android therefore reads the object that holds the code of Fidelity, which it finds by the address
+of a static of its own probe. Measured on Android 16, API 36, and ARM64 on 2026-08-20: the library
+of an application holds 55 dispatch targets and `app_process64` holds 48, and a probe pointed at
+the main image reported the second number. Bionic gives no other route, because it names the main
+executable by its full path and reports the linker first, so the empty name that Linux reads as the
+main image never appears.
 
 The comparison needs a table that the loader bound fully before the process ran. A table that the
 loader binds on the first call rewrites its own entries later, which reads exactly as a hook reads.
 Measured on Linux and ARM64 on 2026-08-19: a Rust main image, in a debug build and a release build,
 carries `BIND_NOW`, so every entry holds its final value from before the process ran and a later
-change arrived from outside. A main image that is not fully bound reports `Unsupported`, which
-states the gap rather than a false clean. Windows resolves the static import table at load, before
-the entry point, so it is always fully bound, and a delay-load import is a separate table that the
-probe does not read.
+change arrived from outside. An Android library carries the same flag, measured on 2026-08-20. An
+image that is not fully bound reports `Unsupported`, which states the gap rather than a false
+clean. Windows resolves the static import table at load, before the entry point, so it is always
+fully bound, and a delay-load import is a separate table that the probe does not read.
 
 Apple applies that same rule to its own two binding models, and the load commands of the image name
 which one it uses. `LC_DYLD_CHAINED_FIXUPS` binds every import before the image runs and carries no
@@ -283,16 +296,20 @@ source held 2 non-lazy pointers and 72 lazy ones.
 A redirected target is `Medium`, and `High` is closed rather than pending. The evidence is direct,
 because a fully bound table does not rewrite its own entries. It stays below `High` for the reason
 the signal model states: an attacker inside the process rewrites the table and the comparison logic
-together, so the signal has a meaningful user-mode bypass. Measured on 2026-08-19, on ARM64: the
-`memcpy` slot of a Linux main image, redirected to `memmove`, left the runtime baseline clean over
-40 seconds and this detector caught it after 5.6 seconds. On Windows, an external
-`WriteProcessMemory` redirected a startup import of the running subject to another loaded function,
-and this detector caught it after 7.0 seconds while the baseline stayed clean, because the import
-table sits in a data section. On macOS and on iOS, an agent that the loader mapped before the
-process ran redirected the `memcpy` pointer of the main image to a forwarder of its own, and this
-detector caught it after
-5.8 and 5.1 seconds while the baseline stayed clean over 40 seconds. So this detector catches a hook
-that maps no new executable region.
+together, so the signal has a meaningful user-mode bypass.
+
+Four platforms run one control, and Windows runs the other. On macOS, iOS, Linux, and Android, an
+agent that the loader mapped before the process ran redirects the `memcpy` entry of the image to a
+forwarder of its own. On Windows, an external `WriteProcessMemory` redirects a startup import of
+the running subject to another loaded function, which needs no agent inside the process at all.
+
+The runtime baseline stayed clean over 40 seconds under every one of them, and this detector
+reported each time. That is the result the detector exists for: the Apple and Linux forwarder sits
+inside the baseline that `start()` captured, and the Windows import sits in a data section, so no
+executable-memory rule reaches either one. Measured on ARM64 on 2026-08-20: the five catch times
+ran from 5.8 to 6.7 seconds, and that spread is the worker cycle of 5 seconds plus its jitter, and
+not a difference between the platforms. [The test record](../../tests/platform/README.md) holds the
+figure that each run measured.
 
 Three clean controls decided the rule, and each one ran on Linux and ARM64 on 2026-08-19. A plain
 process, a Rust process, and a Python process with SQLite and OpenSSL, which holds 6749 targets,
@@ -302,11 +319,11 @@ a call, which is why the detector reads a fully bound table only. A benign `dlop
 loaded a library and moved 4 targets, and none of them pointed into the library it loaded, so a
 plugin load does not trip the detector.
 
-Two coverage limits follow, and both are deliberate. A redirect to another address inside an object
-that was already loaded, such as `memcpy` to `memmove`, reports here, but a redirect that the
-attacker maps as new executable memory is the runtime baseline's finding instead, because the
-trampoline is a region that arrived after start. A hook of a shared library's own dispatch table is
-out of scope, because the snapshot reads the main image alone.
+Two coverage limits follow, and both are deliberate. A redirect to an address inside an object that
+the loader mapped before start reports here, but a redirect that the attacker maps as new
+executable memory is the finding of the runtime baseline instead, because the trampoline is a
+region that arrived after start. A hook of the dispatch table of another library is out of scope,
+because the snapshot reads one image alone.
 
 ## Runtime baseline
 

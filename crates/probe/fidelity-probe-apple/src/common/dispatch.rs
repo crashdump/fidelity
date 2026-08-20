@@ -9,7 +9,7 @@ use fidelity_core::{DispatchTargets, Observation, Target};
 use crate::sys;
 
 /// What the capability reports when the image holds no readable table.
-const NO_TABLE: &str = "the main image holds no symbol-pointer table";
+const NO_TABLE: &str = "the image of the host holds no symbol-pointer table";
 
 /// The dispatch targets of the main image.
 pub(crate) fn dispatch_targets() -> Observation<DispatchTargets> {

@@ -16,11 +16,18 @@
 //            no loaded object accounts for. The trampoline jumps to the
 //            address the slot held, so the call still does its work. This is
 //            the shape a hook takes when it needs its own code.
-//   inside   the target points at another function of an object that was
-//            already loaded. It repoints memcpy at memmove, which is a
-//            correct answer for every memcpy call, so the subject cannot tell.
-//            No absolute rule reports this one, and only a comparison against
-//            the start of the process does.
+//   inside   the target points at a forwarder of this library, which calls the
+//            real memcpy and returns what it returns. The loader maps this
+//            library before the subject runs, so the forwarder sits inside the
+//            baseline that start() captured and no new executable memory
+//            arrives. No absolute rule reports this one, and only a comparison
+//            against the start of the process does.
+//
+// The inside form pointed memcpy at memmove until 2026-08-20. Two systems
+// resolve both names to one address, so the rewrite wrote back the value the
+// slot already held and the control passed while proving nothing. Measured on
+// macOS 26.5.2 and on Android 16, both ARM64. A forwarder of this library
+// depends on no libc, and hook-macos.c already took that shape.
 //
 // Build. No path here holds a star, because a star and a slash close a
 // comment:
@@ -98,12 +105,22 @@ static ElfW(Addr) trampoline_to(ElfW(Addr) destination)
     return (ElfW(Addr))page;
 }
 
+// The real function, which the forwarder below calls.
+static void *(*real_memcpy)(void *, const void *, size_t);
+
+// What the rewritten entry reaches in the inside form. A real hook reads or
+// changes the call and then forwards it, and this one only forwards.
+static void *forwarder(void *to, const void *from, size_t count)
+{
+    return real_memcpy(to, from, count);
+}
+
 // The slot this control rewrites. The inside form needs the memcpy slot, and
 // the outside form takes any bound slot of the main image.
 static struct slot *choose(int inside)
 {
     for (int index = 0; index < slot_count; index++) {
-        if (slots[index].object != 0 || slots[index].value == 0) {
+        if (!objects[slots[index].object].is_main || slots[index].value == 0) {
             continue;
         }
         if (!inside) {
@@ -137,10 +154,13 @@ static void *hook(void *ignored)
 
     ElfW(Addr) replacement = 0;
     if (inside) {
-        // memmove answers every memcpy call correctly, so the subject keeps
-        // working and the address stays inside the object that already
-        // answered the call.
-        replacement = (ElfW(Addr))dlsym(RTLD_DEFAULT, "memmove");
+        // The forwarder answers every memcpy call correctly, so the subject
+        // keeps working, and it sits in a library that the loader mapped
+        // before the subject ran.
+        real_memcpy = (void *(*)(void *, const void *, size_t))dlsym(RTLD_DEFAULT, "memcpy");
+        if (real_memcpy) {
+            replacement = (ElfW(Addr))forwarder;
+        }
     } else {
         replacement = trampoline_to(target->value);
     }

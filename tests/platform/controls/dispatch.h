@@ -17,6 +17,7 @@
 #include <elf.h>
 #include <link.h>
 #include <string.h>
+#include <sys/auxv.h>
 
 #if defined(__aarch64__)
 #define FIDELITY_JUMP_SLOT R_AARCH64_JUMP_SLOT
@@ -34,6 +35,7 @@ struct object {
     ElfW(Addr) base;
     ElfW(Addr) low;
     ElfW(Addr) high;
+    int is_main;
     int binds_now;
     const ElfW(Rela) * relocations;
     size_t relocation_count;
@@ -77,6 +79,12 @@ static int fidelity_collect(struct dl_phdr_info *info, size_t size, void *data)
     object->name = info->dlpi_name && info->dlpi_name[0] ? info->dlpi_name : "the main image";
     object->base = info->dlpi_addr;
     object->low = (ElfW(Addr)) - 1;
+    // The kernel names the program headers of the main image, so this holds on
+    // both loaders. glibc leaves the name of the main image empty, and Bionic
+    // gives its full path and reports the linker first, so a name and an index
+    // each name the wrong object on one of the two. Measured on Android 16 and
+    // ARM64 on 2026-08-20.
+    object->is_main = info->dlpi_phdr == (const ElfW(Phdr) *)getauxval(AT_PHDR);
 
     const ElfW(Dyn) *dynamic = NULL;
     for (int index = 0; index < info->dlpi_phnum; index++) {

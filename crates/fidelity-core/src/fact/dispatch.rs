@@ -6,11 +6,12 @@
 //! [runtime baseline](../baseline/index.html) reports clean and no
 //! executable-memory rule reaches the table, which holds data.
 //!
-//! This fact records the dispatch targets of the main image, the one image
-//! that the host controls and that an attacker rewrites to intercept the
-//! host's own calls. It records the main image alone, because a shared library
-//! can hold thousands of targets and the memory of the snapshot must stay
-//! bounded. Measured on Linux and ARM64: a Rust main image holds about 80.
+//! This fact records the dispatch targets of one image: the image that holds
+//! the code of the host, which is the one an attacker rewrites to intercept
+//! the calls of the host. It records one alone, because a shared library can
+//! hold thousands of targets and the memory of the snapshot must stay bounded.
+//! Measured on ARM64: a Rust main image holds about 80 on Linux, and an
+//! Android application library holds 55.
 
 /// One dispatch target: where the entry sits, and where it points now.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -41,14 +42,14 @@ impl Target {
 
 /// How many dispatch targets one snapshot keeps.
 ///
-/// The snapshot records the main image alone, which holds far fewer targets
-/// than a shared library. Measured on Linux and ARM64: a Rust main image holds
-/// about 80. The limit keeps the memory that the snapshot costs fixed, and a
-/// main image that passes it reports that fact rather than a partial answer
-/// that reads as complete.
+/// The snapshot records one image alone, which holds far fewer targets than a
+/// system library. Measured on ARM64: a Rust main image holds about 80 on
+/// Linux, and an Android application library holds 55. The limit keeps the
+/// memory that the snapshot costs fixed, and an image that passes it reports
+/// that fact rather than a partial answer that reads as complete.
 pub const MAX_TARGETS: usize = 4096;
 
-/// The dispatch targets of the main image.
+/// The dispatch targets of the image of the host.
 ///
 /// The capability answers what the targets are. It does not answer whether
 /// they changed: a detector compares a later snapshot against the one that
@@ -58,8 +59,8 @@ pub const MAX_TARGETS: usize = 4096;
 /// process ran. A table that the loader binds on the first call rewrites its
 /// own entries later, which reads exactly as a hook reads, so a snapshot of a
 /// table that is not fully bound cannot support the comparison. Measured on
-/// Linux and ARM64: a Rust main image is fully bound, because the toolchain
-/// links it with full read-only relocation.
+/// ARM64: a Rust image is fully bound on Linux and on Android, because the
+/// toolchain links it with full read-only relocation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DispatchTargets {
     targets: Vec<Target>,

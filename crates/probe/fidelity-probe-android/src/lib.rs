@@ -11,9 +11,14 @@
 //!
 //! Every capability answers. Only
 //! `lifecycle` needs the JVM handle that the host supplies: the kernel, the
-//! process filesystem, the archive, and the property store answer the rest,
-//! so a shell binary reaches them as well. The coverage matrix in
+//! process filesystem, the archive, the loader, and the property store answer
+//! the rest, so a shell binary reaches them as well. The coverage matrix in
 //! `docs/plan/06-delivery.md` states the row for each one.
+//!
+//! `dispatch` is the one capability whose rule an application process alone
+//! proves, because a shell binary holds this crate in its main image and an
+//! application holds it in a library. The instrumented test covers that, and
+//! `dispatch_image_path` is what it reads.
 //!
 //! # Layout
 //!
@@ -33,6 +38,7 @@
 
 mod baseline;
 mod device;
+mod dispatch;
 mod emulation;
 mod identity;
 mod injection;
@@ -40,7 +46,7 @@ mod lifecycle;
 mod sys;
 mod tracer;
 
-use fidelity_core::{Dispatch, Environment};
+use fidelity_core::Environment;
 use fidelity_types::Platform;
 
 /// The Android view of the running process.
@@ -91,6 +97,19 @@ pub fn running_virtual_machine() -> Option<usize> {
     sys::jvm::running()
 }
 
+/// The image whose dispatch table the probe reads, as the loader names it.
+///
+/// The instrumented harness compares this against the library that the
+/// application loaded. An application forks from zygote, so its main image is
+/// `/system/bin/app_process64`, and a probe that read the table of that binary
+/// would watch a system binary rather than the host. Only an application
+/// process can prove which image the probe picked, and only this call lets the
+/// harness ask.
+#[must_use]
+pub fn dispatch_image_path() -> Option<String> {
+    sys::dispatch::image_path()
+}
+
 impl Default for AndroidEnvironment {
     fn default() -> Self {
         Self::new()
@@ -102,9 +121,3 @@ impl Environment for AndroidEnvironment {
         Platform::Android
     }
 }
-
-// Android can answer `dispatch`, and no code exists yet. A native procedure
-// linkage table redirect points a call at another address, which the same
-// loader walk that Linux uses reads. The plan holds the cell as `plan`. See
-// `docs/plan/04-detectors-and-platforms.md`.
-impl Dispatch for AndroidEnvironment {}

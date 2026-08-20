@@ -31,9 +31,10 @@ environment and applies a response that the host application selects.
 Every v1 category holds a detector. Five platforms run, each with real clean and hostile controls.
 All five compare executable memory against a baseline that `start()` captured, and all five read
 tracer state. Four read the machine that runs the system, and iOS is the one that does not. macOS
-adds `guarded!()`, and Linux, Android, and Windows add unaccounted code. Four read the dispatch
-table of the main image, so a redirected call is a finding that the baseline misses, and Android is
-the one that does not, because an app forks from zygote. `UiAbuse` takes a host report and reads no
+adds `guarded!()`, and Linux, Android, and Windows add unaccounted code. All five read the dispatch
+table of the image that holds the host, so a redirected call is a finding that the baseline misses.
+Four of them find that image as the main image, and Android reads the library that holds Fidelity,
+because an app forks from zygote. `UiAbuse` takes a host report and reads no
 operating system, so it sits off the platform axis, and the coverage matrix holds no row for it.
 The iOS results come from the simulator, so a device has still to confirm them. The Windows results
 come from the QEMU guest that `tests/platform/vm/windows/` builds, and the identity controls of that

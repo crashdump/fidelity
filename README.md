@@ -5,8 +5,9 @@ environment, and it applies a response that the host selects.
 
 > **Status:** five platforms run, each with real clean and hostile controls. All five answer image
 > identity, compare executable memory against a baseline that `start()` captured, and read tracer
-> state. Windows, Linux, and Android add unaccounted code, and Android adds device compromise. Linux
-> also reads the dispatch table of the main image, so a redirected call is a finding. Four
+> state. Windows, Linux, and Android add unaccounted code, and Android adds device compromise. All
+> five also read the dispatch table of the image that holds the host, so a redirected call is a
+> finding that the baseline misses. Four
 > report whether a virtual machine monitor runs the system, and iOS is the one that does not.
 > The iOS results come from the simulator, and the Windows results come from a virtual machine. A
 > device and a physical host have still to confirm those two, and a physical host is also what the

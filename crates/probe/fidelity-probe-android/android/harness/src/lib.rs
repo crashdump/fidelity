@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 // The cost measurements read through `&dyn Environment`, so the capability
 // traits that they call reach this file through the supertrait and not through
 // a name of their own.
-use fidelity_core::{Environment, Identity, Lifecycle, Observation, WorkerSetup};
+use fidelity_core::{Dispatch, Environment, Identity, Lifecycle, Observation, WorkerSetup};
 use fidelity_probe_android::AndroidEnvironment;
 use fidelity_types::{CertificateSha256, Choice, ExpectedIdentity};
 
@@ -155,6 +155,56 @@ pub extern "system" fn Java_fidelity_probe_Harness_signerPrefix(
     u32::from_str_radix(prefix, 16).map_or(0, |value| i32::from_ne_bytes(value.to_ne_bytes()))
 }
 
+/// The file name of this library, which the application loads by name.
+///
+/// The dispatch check below compares the answer of the probe against it.
+const THIS_LIBRARY: &str = "/libfidelity_harness.so";
+
+/// What the dispatch check reports about the image that the probe selected.
+const THIS_ONE: i32 = 1;
+const ANOTHER: i32 = 2;
+const NONE: i32 = 0;
+
+/// Whether the probe reads the dispatch table of the library of the host.
+///
+/// **This is the decisive test for dispatch on Android, and only an
+/// application process can run it.** An application forks from zygote, so its
+/// main image is `/system/bin/app_process64`. Every application on the device
+/// shares that binary, and no call of the host reaches its table. The four
+/// other platforms read the main image, and Android must read the library that
+/// holds Fidelity instead. A shell binary cannot prove the difference, because
+/// there the two are one image.
+///
+/// It returns 1 when the probe named this library, 2 when it named another
+/// image, and 0 when the loader named none.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fidelity_probe_Harness_dispatchImageIsThisLibrary(
+    _env: *mut c_void,
+    _class: *mut c_void,
+) -> i32 {
+    match fidelity_probe_android::dispatch_image_path() {
+        Some(path) if path.ends_with(THIS_LIBRARY) => THIS_ONE,
+        Some(_) => ANOTHER,
+        None => NONE,
+    }
+}
+
+/// How many dispatch targets the probe reports in this process.
+///
+/// The count states that the walk answered here, and not only in the shell
+/// binary that the unit tests run. It returns 0 when the probe reports no
+/// fact.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fidelity_probe_Harness_dispatchTargetCount(
+    _env: *mut c_void,
+    _class: *mut c_void,
+) -> i32 {
+    let Observation::Fact(targets) = AndroidEnvironment::new().dispatch_targets() else {
+        return 0;
+    };
+    i32::try_from(targets.targets().len()).unwrap_or(i32::MAX)
+}
+
 /// How long one measurement runs, and the smallest number of runs it takes.
 ///
 /// Both match `crates/probe/measure.rs`, so this number and the numbers that
@@ -209,6 +259,7 @@ pub extern "system" fn Java_fidelity_probe_Harness_cycleCostMicros(
         black_box(probe.tracer_state());
         black_box(probe.code_regions());
         black_box(probe.code_origin());
+        black_box(probe.dispatch_targets());
     })
 }
 

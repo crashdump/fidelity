@@ -35,6 +35,12 @@ object Harness {
     /** The first four bytes of the signing-certificate digest the probe reads. */
     external fun signerPrefix(): Int
 
+    /** Reports 1 when the probe reads the dispatch table of this library. */
+    external fun dispatchImageIsThisLibrary(): Int
+
+    /** How many dispatch targets the probe reports in this process. */
+    external fun dispatchTargetCount(): Int
+
     /** The fastest cost of one identity read in this process, in microseconds. */
     external fun identityCostMicros(): Int
 

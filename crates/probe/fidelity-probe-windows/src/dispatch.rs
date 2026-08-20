@@ -11,7 +11,7 @@ impl Dispatch for WindowsEnvironment {
             // A static image with no import table holds no dispatch target to
             // watch. That is a gap in coverage, and never a finding.
             return Observation::Unsupported {
-                reason: "the main module holds no import table",
+                reason: "the image of the host holds no import table",
             };
         };
 

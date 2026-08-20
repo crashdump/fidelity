@@ -54,10 +54,11 @@ The capability and system names match the coverage matrix exactly, because the t
 | `injection` | `instrumentation.unaccounted_code` | Linux | Debian, glibc | a plain process holds no anonymous executable region | an `LD_PRELOAD` agent maps 4 KiB, reports, `Medium` |
 | `injection` | `instrumentation.unaccounted_code` | Android | Android 37, emulator, 2026-08-18 | `inject-clean-android`: a plain run accounts for every executable region it holds. A real runtime names its code caches `[anon_shmem:dalvik-jit-code-cache]`, so they stay distinct from anonymous memory. | `inject-hostile-android`: `agent.so`, through `LD_PRELOAD`, maps 16 KiB with no file behind it, reports `Medium`, `unaccounted executable memory: 16384 bytes, region count 1` |
 | `injection` | `instrumentation.unaccounted_code` | Windows | Windows 11 Pro, build 10.0.26200, ARM64, in the QEMU guest, 2026-08-15 | a plain run accounts for every executable region that it holds | `inject-windows.c` maps 64 KiB with no file behind it, before the subject runs its first instruction, reported `Medium`, `unaccounted executable memory: 65536 bytes, region count 1`, and the operation denied |
-| `dispatch` | `instrumentation.dispatch_targets` | Linux | Debian 13, kernel 6.12, in the QEMU guest, 2026-08-19 | `dispatch-clean-linux`: the `redirect` example runs 40 s with no finding. The main image binds its dispatch table fully, so every entry holds its start value and none moves. | `dispatch-hostile-linux`: `hook.c` points the `memcpy` entry of the main image at `memmove`, which answers every call, so the subject keeps running. The runtime baseline stays clean, and this detector reports after 5.6 s, `Medium`, `dispatch targets of the main image that start did not hold: 1`. |
-| `dispatch` | `instrumentation.dispatch_targets` | Windows | Windows 11 Pro, build 10.0.26200, ARM64, in the QEMU guest, 2026-08-19 | `dispatch-clean-windows`: the `redirect` example runs 40 s with no finding. Measured on the same guest: the main module holds 71 import entries, none outside a loaded image and none that moved over three seconds, because Windows binds the static import table at load. | `dispatch-hostile-windows`: `iat-hook-windows.c` redirects the `SetUnhandledExceptionFilter` import of the running subject to an address that another import already holds, from outside with `WriteProcessMemory`. The import sits in a data section, so the runtime baseline stays clean, and this detector reports after 7.0 s, `Medium`, `dispatch targets of the main image that start did not hold: 1`. |
-| `dispatch` | `instrumentation.dispatch_targets` | macOS | macOS 26.5.2, ARM64, 2026-08-20 | `dispatch-clean-macos`: the `redirect` example runs 40 s with no finding. The main image carries `LC_DYLD_CHAINED_FIXUPS`, so the loader bound every import before the process ran, and 73 to 96 pointers sit in `__got` with no lazy table beside them | `dispatch-hostile-macos`: `hook-macos.c` arrives with the image, waits 3 s, then points the `memcpy` pointer of the main image at a forwarder of its own. The detector reports `Medium`, `dispatch targets of the main image that start did not hold: 1`, after 5.8 s. The runtime baseline stayed clean over 40 s in the same conditions, which is the result that this detector exists for. |
-| `dispatch` | `instrumentation.dispatch_targets` | iOS | iOS 18.4, simulator, 2026-08-20 | `dispatch-clean-ios`: the same example and the same 40 s, in the simulator | `dispatch-hostile-ios`: the same agent, built for the simulator and inserted with `SIMCTL_CHILD_DYLD_INSERT_LIBRARIES`, caught after 5.1 s. iOS and macOS share the Mach-O layout and the loader, so one walk answers both. |
+| `dispatch` | `instrumentation.dispatch_targets` | Linux | Debian 13, kernel 6.12, in the QEMU guest, 2026-08-19 | `dispatch-clean-linux`: the `redirect` example runs 40 s with no finding. The main image binds its dispatch table fully, so every entry holds its start value and none moves. | `dispatch-hostile-linux`: `hook.c` arrives with `LD_PRELOAD`, waits 3 s, then points the `memcpy` entry of the main image at a forwarder of its own, which calls the real one, so the subject keeps running. The runtime baseline stays clean, and this detector reports after 6.4 s, `Medium`, `dispatch targets that moved after start: 1`. |
+| `dispatch` | `instrumentation.dispatch_targets` | Windows | Windows 11 Pro, build 10.0.26200, ARM64, in the QEMU guest, 2026-08-19 | `dispatch-clean-windows`: the `redirect` example runs 40 s with no finding. Measured on the same guest: the main module holds 71 import entries, none outside a loaded image and none that moved over three seconds, because Windows binds the static import table at load. | `dispatch-hostile-windows`: `iat-hook-windows.c` redirects the `SetUnhandledExceptionFilter` import of the running subject to an address that another import already holds, from outside with `WriteProcessMemory`. The import sits in a data section, so the runtime baseline stays clean, and this detector reports after 5.8 s, `Medium`, `dispatch targets that moved after start: 1`. |
+| `dispatch` | `instrumentation.dispatch_targets` | macOS | macOS 26.5.2, ARM64, 2026-08-20 | `dispatch-clean-macos`: the `redirect` example runs 40 s with no finding. The main image carries `LC_DYLD_CHAINED_FIXUPS`, so the loader bound every import before the process ran, and 73 to 96 pointers sit in `__got` with no lazy table beside them | `dispatch-hostile-macos`: `hook-macos.c` arrives with the image, waits 3 s, then points the `memcpy` pointer of the main image at a forwarder of its own. The detector reports `Medium`, `dispatch targets that moved after start: 1`, after 6.7 s. The runtime baseline stayed clean over 40 s in the same conditions, which is the result that this detector exists for. |
+| `dispatch` | `instrumentation.dispatch_targets` | iOS | iOS 18.4, simulator, 2026-08-20 | `dispatch-clean-ios`: the same example and the same 40 s, in the simulator | `dispatch-hostile-ios`: the same agent, built for the simulator and inserted with `SIMCTL_CHILD_DYLD_INSERT_LIBRARIES`, caught after 6.2 s. iOS and macOS share the Mach-O layout and the loader, so one walk answers both. |
+| `dispatch` | `instrumentation.dispatch_targets` | Android | Android 16, API 36, emulator, 2026-08-20 | `dispatch-clean-android`: the `redirect` example runs 40 s with no finding. `android-instrumented` holds the arm that matters, and it is the only one an application process can give: the probe named `libfidelity_harness.so`, the library that the application loaded, and reported its 55 targets. A shell binary cannot fail that way, because there the library and the main image are one image. | `dispatch-hostile-android`: `hook.c`, built with the NDK and preloaded, points the `memcpy` entry of the main image at a forwarder of its own. The detector reports `Medium`, `dispatch targets that moved after start: 1`, after 6.1 s. The `late` example under the same hook reported no code after start over 40 s, so the runtime baseline stays clean and this detector is the only one that sees it. |
 | `emulation` | `virtualization.machine_host` | macOS | macOS 26.5 bare metal and macOS 26.6.2 in the guest, 2026-08-18 | `machine-hardware-macos`: this development machine, a MacBookPro18,4, reports `kern.hv_vmm_present=0`, so the detector reports clean and the operation is allowed | `machine-guest-macos`: the same binary inside the Virtualization.framework guest that `tests/platform/vm/macos/` builds reports `kern.hv_vmm_present=1`, and the detector reports `Medium`, `the kernel reports kern.hv_vmm_present=1, so a virtual machine monitor runs this system`, and the operation is denied |
 | `emulation` | `virtualization.machine_host` | Linux | Debian 13, kernel 6.12, in the QEMU guest, 2026-08-19 | none. This project owns no bare-metal Linux, and every Linux control runs in a guest. The gaps table below holds it. | `machine-guest-linux`: the guest reports `sys_vendor=QEMU` and `product_name=QEMU Virtual Machine`, and the detector reports `Medium`, `the firmware names the machine QEMU`, and the operation is denied. A second monitor covers the other source: an ARM64 Linux guest under the Apple hypervisor, which OrbStack runs, exposes no `/sys/class/dmi` at all and holds twelve virtio devices, and the same binary there reports `Medium`, `the kernel holds a virtio device, which needs a monitor to answer it`. That arm is manual, because it needs a container runtime that the guest set does not hold. |
 | `emulation` | `virtualization.machine_host` | Windows | Windows 11 Pro, build 10.0.26200, ARM64, in the QEMU guest, 2026-08-19 | none. This project owns no bare-metal Windows, and every Windows control runs in the guest. The gaps table below holds it. | `machine-guest-windows`: `GetSystemFirmwareTable` with the `RSMB` provider returns a 383-byte table whose System Information structure names `QEMU` and `QEMU Virtual Machine`, and the detector reports `Medium`, `the firmware names the machine QEMU`, and the operation is denied. The captured table is the fixture that the reader tests against. |
@@ -150,6 +151,44 @@ Three negative results carry the same weight as the rows above, and
 excluded-mechanisms table: the macOS hardened runtime refuses `DYLD_INSERT_LIBRARIES`, a later
 `dlopen` leaves the dyld image list in order, and no absolute count of unattributed executable
 memory works on Apple, because a clean process holds about 3.6 GB of it across 13 to 16 regions.
+
+## Which image holds the dispatch table
+
+The dispatch detector reads one image. Four platforms link the host into the main image and read
+that, and Android is the one that does not. An application forks from zygote, so its main image is
+`/system/bin/app_process64`, which every application on the device runs and which holds none of the
+code of the host. Android reads the object that holds the code of Fidelity instead, and it finds it
+by the address of a static of the probe.
+
+Four measurements decided that, and each one ran on 2026-08-20, on an Android 16 emulator with API
+36 and ARM64.
+
+| Question | Answer |
+|---|---|
+| What does `dl_iterate_phdr` name in a shell binary? | eight objects, the linker first, and the main executable by its full path |
+| What is the main image of an application process? | `/system/bin/app_process64`, and it holds 48 dispatch targets |
+| What does the library of the application hold? | `libfidelity_harness.so`, with 55 dispatch targets, and `BIND_NOW` |
+| Do `memcpy` and `memmove` differ in Bionic? | no. Both resolve to `0x7da8276300`, as they do on macOS |
+
+The first answer alone rules out the Linux reader. glibc leaves the name of the main image empty,
+and Linux reads that; Bionic names it and reports the linker first, so the same code finds nothing
+at all and the capability would report `Unsupported` forever.
+
+The second and the third are the pair that decided the rule, and each number has an independent
+check. `llvm-readelf` counts 48 jump slots in the `app_process64` pulled off this device and 55 in
+`libfidelity_harness.so`, which is what the probe reported for each. **The 48 came from breaking
+the rule on purpose**: with the selection changed to take the main image, the instrumented test
+reported `app_process64` and its 48 targets, and both new tests failed. That is the run that proves
+the tests can tell the two images apart, and a shell binary never can, because there the library
+and the main image are one image.
+
+The fourth changed a control on two platforms. `hook.c` pointed `memcpy` at `memmove` until this
+date, and on Bionic that writes back the value the slot already holds, so the control would have
+passed while proving nothing. `hook-macos.c` had already met the same thing in libSystem on
+2026-08-20 and answered it with a forwarder of its own. `hook.c` now takes that shape too, so one
+control shape covers Linux, Android, macOS, and iOS, and no control of this project depends on two
+libc symbols differing. `dispatch.h` also stopped naming the main image by index, which was the
+linker on Android, and names it by `AT_PHDR`, which both loaders answer.
 
 ## The resume promise
 
@@ -449,17 +488,31 @@ failed none in 150. The rebuild is therefore not the fix, and the code does not 
 
 ## The generated record
 
-`run.sh` ran the whole set on 2026-08-20, on macOS 26 and ARM64, with a booted iOS simulator, both
-guests running, and an Android 36 emulator attached. It wrote 113 rows: 108 passed, 4 `manual`, 1
-skipped, and none failed. The skipped row is Miri, which keeps its own schedule. A run takes about
-13 minutes, or 16 with `FIDELITY_WITH_MIRI=1`. Nine clean controls spend 40 seconds each waiting for
-a finding that must never arrive.
+`run.sh` ran the whole set on 2026-08-20 at 06:40 UTC, on macOS 26 and ARM64, with a booted iOS
+simulator, both guests running, and an Android 36 emulator attached. It wrote 115 rows: 109 passed,
+4 `manual`, 1 skipped, and 1 failed. The skipped row is Miri, which keeps its own schedule. A run
+takes about 13 minutes, or 16 with `FIDELITY_WITH_MIRI=1`. Eleven clean controls spend 40 seconds
+each waiting for a finding that must never arrive.
 
-Two rows are worth watching on a busy machine, and neither one failed in that run.
-`android-instrumented` asserts that one cycle of an application process stays inside 20 ms, and an
-earlier run of the same day read 23.5 ms at a load average of 19.6 on 10 cores. A full run needs
-both guests, an emulator, and a simulator at the same time, so a full run is the condition that this
-ceiling works against.
+**The one failed row is a cost ceiling, and the ceiling is what fails.**
+`android-instrumented` asserts that one cycle of an application process stays inside 20 ms, and it
+read 22.6 ms in that run. An earlier run of the same day read 23.5 ms at a load average of 19.6 on
+10 cores, and a full run needs both guests, an emulator, and a simulator at once, so a loaded
+machine looks like the whole explanation. It is not.
+
+Eleven runs on 2026-08-20, on an idle machine, measured the same cycle:
+
+| The measurement | Runs | Lowest | Highest |
+|---|---|---|---|
+| with the dispatch read | 7 | 12.2 ms | 20.0 ms |
+| with that read removed | 4 | 12.4 ms | 18.0 ms |
+
+The two sets overlap on both ends, so the dispatch read cannot be separated from the noise of the
+measurement, which is what `cost-android` already implies: it measures that read at 2.0 us against
+a cycle of about 12,800 us, or one part in six thousand. **The idle machine reached 20.0 ms on its
+own**, which is the number that matters. The ceiling sits inside the spread of the thing it
+measures, so a loaded run fails it and an idle run can too. Whether to raise it, to measure the
+cycle differently, or to leave the row failing is a product decision, and it is open.
 
 **Read the header date before you trust a row.** A record is a snapshot of the tree that produced
 it, and a commit can carry both the record and code that landed after the run. That happened on
@@ -468,7 +521,7 @@ UTC, and the `msrv-1.85 pass` row therefore described a tree with no `dispatch` 
 The code that arrived in those three hours did not build on 1.85, and the row said nothing, because
 the row was older than the defect. Nothing checks this, so the header date is the only guard.
 
-Sixty-one of the 94 are the hostile controls and their clean halves, which used to need a person.
+Sixty-four of the 115 are the hostile controls and their clean halves, which used to need a person.
 Each `caught after` figure is the time a host is exposed for, and it is the number that matters
 most. A macOS or a Linux row below holds two runs, because the worker interval carries jitter and a
 single figure would read as a constant:
@@ -495,7 +548,7 @@ single figure would read as a constant:
 | `baseline-clean-linux` | Linux | 40 s with no finding |
 | `inject-hostile` | Linux | `agent.c` maps 4 KiB, reported, and the operation denied |
 | `inject-clean` | Linux | a loader that maps a library from a file reports nothing |
-| `dispatch-hostile-linux` | Linux | `hook.c` points `memcpy` at `memmove`, caught after 5.6 s, `Medium` |
+| `dispatch-hostile-linux` | Linux | `hook.c` points `memcpy` at a forwarder of its own, caught after 6.4 s, `Medium` |
 | `dispatch-clean-linux` | Linux | 40 s with no finding, and the baseline stays clean too |
 | `tracer-at-start-linux` | Linux | `attach.c` traces from exec, found by the initial scan |
 | `tracer-attaches-linux` | Linux | `attach.c` attaches after start, caught after 5.3 s and 5.8 s |
@@ -507,7 +560,7 @@ single figure would read as a constant:
 | `baseline-clean-windows` | Windows | 40 s with no addition |
 | `inject-hostile-windows` | Windows | `inject-windows.c` maps 64 KiB with no file behind it, reported, and the operation denied |
 | `inject-clean-windows` | Windows | a plain run accounts for every executable region it holds |
-| `dispatch-hostile-windows` | Windows | `iat-hook-windows.c` redirects an import, caught after 7.0 s, `Medium` |
+| `dispatch-hostile-windows` | Windows | `iat-hook-windows.c` redirects an import, caught after 5.8 s, `Medium` |
 | `dispatch-clean-windows` | Windows | 40 s with no finding, and the baseline stays clean too |
 | `tracer-at-start-windows` | Windows | `attach-windows.c` traces the subject from the start, found by the initial scan |
 | `tracer-attaches-windows` | Windows | `attach-windows.c` attaches after start, caught after 6.1 s |
@@ -529,6 +582,8 @@ single figure would read as a constant:
 | `baseline-clean-android` | Android | 40 s with no finding |
 | `inject-hostile-android` | Android | `agent.c` maps 16 KiB with no file behind it, reported `Medium` |
 | `inject-clean-android` | Android | a plain run accounts for every executable region it holds |
+| `dispatch-hostile-android` | Android | `hook.c` points `memcpy` at a forwarder of its own, caught after 6.1 s, `Medium` |
+| `dispatch-clean-android` | Android | 40 s with no finding, and the baseline stays clean too |
 | `android-identity-mechanism` | Android | the keystore and a walk of the signing block report one digest |
 
 The record is checked in, so `run.sh` removes the path of the workspace from every detail. A record
@@ -574,10 +629,10 @@ needs reading is a control that nobody re-runs.
 | `run.sh` | the generated record, `record.tsv`. It drives every control below that gives an answer on its own, and it writes a `manual` row for each one that needs a person. |
 | `controls/agent.c` | unaccounted code. It maps 4 KiB of anonymous executable memory at load. |
 | `controls/delayed.c` | a runtime baseline finding. It waits 3 s, then maps 64 KiB, so the mapping arrives after `start()` captured the baseline. |
-| `controls/hook.c` | a dispatch redirect. It waits 3 s, then rewrites one entry of the main image's dispatch table so a call reaches another function that already exists. The inside form points `memcpy` at `memmove`, which answers every call, so the subject keeps running and no new region maps. Its shared loader walk is in `controls/dispatch.h`. |
-| `controls/dispatch.h` | the dispatch-target walk, in C, so a control reads the table without linking the library. `controls/regions.h` does the same job for the Mach region walk. |
+| `controls/hook.c` | a dispatch redirect, on Linux and on Android. It waits 3 s, then rewrites one entry of the main image's dispatch table so a call reaches code that the loader mapped before the subject ran. The inside form points `memcpy` at a forwarder of this library, which answers every call, so the subject keeps running and no new region maps. Its shared loader walk is in `controls/dispatch.h`. |
+| `controls/dispatch.h` | the dispatch-target walk, in C, so a control reads the table without linking the library. It names the main image by `AT_PHDR`, because glibc leaves that name empty and Bionic gives a full path and reports the linker first. `controls/regions.h` does the same job for the Mach region walk. |
 | `controls/iat-hook-windows.c` | the Windows dispatch redirect. It opens a running subject by process identifier, finds a startup-only import of the main module, and redirects it with `WriteProcessMemory` to an address that another import already holds. The import sits in a data section, so no region maps and the runtime baseline stays clean. |
-| `controls/hook-macos.c` | the Apple dispatch redirect, on macOS and on iOS. The loader maps it before the subject runs, so its code sits inside the baseline. It waits 3 s, then points the `memcpy` pointer of the main image at a forwarder of its own, which calls the real one. `memcpy` and `memmove` resolve to one address in this libSystem, so the Linux pair rewrites nothing here and the control would prove nothing. |
+| `controls/hook-macos.c` | the Apple dispatch redirect, on macOS and on iOS. The loader maps it before the subject runs, so its code sits inside the baseline. It waits 3 s, then points the `memcpy` pointer of the main image at a forwarder of its own, which calls the real one. `memcpy` and `memmove` resolve to one address in this libSystem, which is why no control of this project points one at the other. |
 | `controls/attach.c` | a tracer finding where no debugger is available. It is a minimal `ptrace` tracer, in two forms: it traces a program from its own exec, or it attaches to a process that already runs. |
 | `controls/trace-after-start.sh` | the tracer control that only the worker can catch. It starts the `attach` example, reads the process identifier that the example prints, and puts a tracer on it. `lldb -p` is the tracer on macOS and on iOS, `attach.c` is the tracer on Linux and on Android, and `attach-windows.c` is the tracer on Windows. On iOS the harness gives it a two-line wrapper, because the subject runs inside the simulator and this script takes one command with no argument. |
 | `controls/resume-after-freeze.sh` | the resume promise. It starts the `resume` example, freezes it with `SIGSTOP` for 20 s, and continues it, which is what a suspension does to every thread. The subject measures the delay itself, because only it holds the resume and the scan on one clock. See [the resume promise](#the-resume-promise). |
@@ -893,9 +948,9 @@ export CARGO_TARGET_AARCH64_LINUX_ANDROID_RUNNER=$PWD/tests/platform/controls/ru
 cargo test -p fidelity-probe-android --target aarch64-linux-android
 ```
 
-### Android, the seven detector controls
+### Android, the nine detector controls
 
-`run.sh` runs all seven. They push an example and an agent to `/data/local/tmp/`, and they use the
+`run.sh` runs all nine. They push an example and an agent to `/data/local/tmp/`, and they use the
 same sources that Linux uses, because Android keeps the Linux process filesystem and the Linux
 loader. Run one by hand this way:
 
@@ -920,6 +975,16 @@ adb shell sh /data/local/tmp/trace-after-start.sh \
 # The baseline and the unaccounted-code pairs, through LD_PRELOAD.
 "$NDK_CC" -shared -fPIC -o /tmp/delayed.so tests/platform/controls/delayed.c
 "$NDK_CC" -shared -fPIC -o /tmp/agent.so tests/platform/controls/agent.c
+
+# The dispatch pair. The same hook that Linux uses, built with the NDK.
+"$NDK_CC" -shared -fPIC -o /tmp/hook.so tests/platform/controls/hook.c
+cargo build --example redirect -p fidelity --target aarch64-linux-android
+adb push target/aarch64-linux-android/debug/examples/redirect /data/local/tmp/redirect
+adb push /tmp/hook.so /data/local/tmp/hook.so
+adb shell chmod 755 /data/local/tmp/redirect
+adb shell /data/local/tmp/redirect                                  # clean
+adb shell 'LD_PRELOAD=/data/local/tmp/hook.so FIDELITY_HOOK=inside \
+    /data/local/tmp/redirect'                                       # hostile
 ```
 
 The Rust `attach` example and `attach.c` share a name, so the subject goes to the device as
@@ -940,7 +1005,7 @@ first three rows below are what is left of them.
 
 | Gap | What it blocks |
 |---|---|
-| `dispatch` on Android | Nothing that blocks a detector, and it bounds what the category reaches. `instrumentation.dispatch_targets` answers on Linux and Windows since 2026-08-19, and on macOS and iOS since 2026-08-20. Android is the one cell left, and it is the hard one. **An app forks from zygote**, so the main image is `app_process64`, whose imports every app shares rather than the host's own code, and the main-image rule may therefore watch the wrong table. What that cell needs is a measurement of the table that an app's own native library carries, and a rule written against what a real one holds. **The Apple cells closed by reversing a reading**, which is worth recording: on 2026-08-19 this row said macOS was blocked because classic lazy binding moves `__la_symbol_ptr` after start. Measured on 2026-08-20, that is not what happens. The v1 floor is macOS 15 and iOS 26, a linker writes chained fixups from macOS 13 and iOS 15, and a chained image carries no lazy table at all. The blocker was a deployment target below the floor, not the platform. |
+| A hook of a library that the host did not build | Nothing that blocks a detector, and it bounds what the category reaches. `instrumentation.dispatch_targets` now answers on all five platforms, and this row is what the row for Android became once that cell closed on 2026-08-20. The snapshot reads one image, and the memory budget is the reason, so a hook of the dispatch table of a system library goes unreported. That is the deliberate limit that [detectors and platforms](../../docs/plan/04-detectors-and-platforms.md#dispatch-targets) states. **Two cells closed by reversing a reading**, which is worth recording. On 2026-08-19 this row said macOS was blocked because classic lazy binding moves `__la_symbol_ptr` after start; measured on 2026-08-20, the blocker was a deployment target below the v1 floor, and a chained image carries no lazy table at all. It also said the Android main-image rule "may watch the wrong table"; measured on 2026-08-20, it does, and the fix was to stop naming the main image. |
 | The platform half of `UiAbuse` | Nothing that a host needs, and it bounds what the category reaches. The detector landed on 2026-08-19 and it takes a host report, because two measurements showed that no operating system answers this question. **The overlay half is closed to a library.** On Android 37, `WindowManager` declares 41 methods and only the two screen-recording ones touch it, so nothing states that another application draws above this one; that evidence is `MotionEvent.FLAG_WINDOW_IS_OBSCURED`, which reaches a `View` the host owns. **The screen-recording half could move into the probe.** `addScreenRecordingCallback` registered from an application context and the SDK source anchors it to any activity of the registering uid, so a probe could read it where the host declares `DETECT_SCREEN_RECORDING` and the system is API 35 or later. That would save the host one call and change no finding. **One thing stayed unverified.** With an activity of that uid resumed and `adb shell screenrecord` running for 10 s, the callback never fired and the state stayed 0. Whether the shell recorder bypasses the bookkeeping that drives it needs a second application that starts a `MediaProjection`, and this project built none. Reaching the context at all takes a call on a list that Google owns and revises per release, which no compile reports, and that is the standing argument against moving any of this into the probe. |
 | The clean half of `Virtualization`, on three platforms | Nothing that blocks a detector, and it bounds what the record proves. `emulation` answers on macOS, Linux, Windows, and Android since 2026-08-19, and iOS is the one cell that still reads `plan`. Linux, Windows, and Android hold the hostile arm alone: every Linux, Windows, and Android control of this project runs in a guest or an emulator, so no run of this harness has ever seen one of those three report the hardware. The rule that decides the clean answer is covered by unit tests and by a captured firmware table, and only the live half is open. macOS holds both arms, because this development machine is the bare metal. iOS holds neither, and the row below it states why.
 | The machine host on iOS | One cell of one v1 category, and the last one. Measured on 2026-08-19 in an iOS 18.5 simulator: a process reads the kernel of the Mac that hosts it, so `kern.hv_vmm_present`, `hw.machine`, and `hw.model` each report what the Mac reports and none of them describes the simulator. So the macOS reader cannot be shared, and any rule that separated a simulator from a device would rest on a device value that this project has never read. A device closes this, and it is the same device that two rows below ask for.

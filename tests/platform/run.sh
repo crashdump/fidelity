@@ -1244,7 +1244,8 @@ ANDROID_CONTROLS="android-probe-tests cost-android android-instrumented
     android-repackage tracer-clean-android tracer-at-start-android
     tracer-attaches-android resume-after-freeze-android
     baseline-clean-android baseline-hostile-android
-    inject-clean-android inject-hostile-android machine-emulator-android"
+    inject-clean-android inject-hostile-android
+    dispatch-clean-android dispatch-hostile-android machine-emulator-android"
 
 if [ -z "$(adb devices 2>/dev/null | awk 'NR > 1 && $2 == "device" { print $1 }')" ]; then
     for control in $ANDROID_CONTROLS; do
@@ -1348,6 +1349,23 @@ else
             grep 'unaccounted_code: Medium'
     }
 
+    # The dispatch pair, in the shape that the Linux section states. `hook.c`
+    # rewrites one entry of the dispatch table of the main image, and a shell
+    # binary holds Fidelity in that image, so the probe reads the table that
+    # the control rewrote.
+    #
+    # A shell binary cannot prove the rule that Android needs, because there
+    # the main image and the library of the host are one image. The
+    # instrumented test proves that one, inside a real application process.
+    dispatch_hostile_android() {
+        android_example redirect redirect && android_agent hook &&
+            adb shell 'LD_PRELOAD=/data/local/tmp/hook.so FIDELITY_HOOK=inside /data/local/tmp/redirect' |
+            grep 'DispatchRedirected'
+    }
+    dispatch_clean_android() {
+        android_example redirect redirect && adb shell /data/local/tmp/redirect
+    }
+
     # The machine-host control. Every Android system that this project reaches
     # is an emulator, so the detector must report one. The clean half needs a
     # physical device, and README.md holds that gap.
@@ -1371,6 +1389,9 @@ else
     run Android baseline-hostile-android baseline_hostile_android
     run Android inject-clean-android inject_clean_android
     run Android inject-hostile-android inject_hostile_android
+    run Android dispatch-hostile-android dispatch_hostile_android
+    refute Android dispatch-clean-android 'no dispatch target moved after start' \
+        dispatch_clean_android
     run Android machine-emulator-android machine_emulator_android
 fi
 

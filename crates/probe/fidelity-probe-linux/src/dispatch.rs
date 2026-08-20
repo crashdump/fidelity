@@ -12,7 +12,7 @@ impl Dispatch for LinuxEnvironment {
             // dispatch target to watch. That is a gap in coverage, and never a
             // finding.
             return Observation::Unsupported {
-                reason: "the main image holds no dispatch table",
+                reason: "the image of the host holds no dispatch table",
             };
         };
 

@@ -1,7 +1,7 @@
 use fidelity_core::{Dispatch, DispatchTargets, Observation, Target};
 use fidelity_types::{BoundedText, Category, Detector, Evidence, Finding, Outcome, SignalStrength};
 
-/// A call target of the main image points somewhere else than at start.
+/// A call target of the image of the host points somewhere else than at start.
 pub const DISPATCH_TARGETS: Detector = Detector::new(
     9,
     "instrumentation.dispatch_targets",
@@ -12,9 +12,9 @@ pub const DISPATCH_TARGETS: Detector = Detector::new(
 ///
 /// `Medium`. The evidence is direct, because a fully bound table does not
 /// rewrite its own entries and the target held another value at start.
-/// Measured on Linux and ARM64: a `memcpy` slot redirected to `memmove` leaves
-/// the runtime baseline clean and turns up here, so this detector catches a
-/// hook that maps no new executable region.
+/// Measured on Linux and ARM64: a redirected `memcpy` slot leaves the runtime
+/// baseline clean and turns up here, so this detector catches a hook that maps
+/// no new executable region.
 ///
 /// It stays below `High` for the reason the signal model states: an attacker
 /// inside the process rewrites the table and the comparison logic together, so
@@ -27,15 +27,15 @@ const REDIRECTED_STRENGTH: SignalStrength = SignalStrength::Medium;
 /// A table that the loader binds on the first call rewrites its own entries
 /// later, so a change there is ordinary and the comparison cannot run.
 const NOT_BOUND: &str =
-    "the main image does not bind its dispatch table fully, so a change there is ordinary";
+    "the image of the host does not bind its dispatch table fully, so a change there is ordinary";
 
 /// The reason an absent start snapshot states.
 const NO_SNAPSHOT: &str = "this build captured no dispatch snapshot at start";
 
 /// The reason a truncated snapshot states.
-const TRUNCATED: &str = "the main image holds more dispatch targets than a snapshot keeps";
+const TRUNCATED: &str = "the image of the host holds more dispatch targets than a snapshot keeps";
 
-/// Interprets whether a call target of the main image moved after start.
+/// Interprets whether a call target of the image of the host moved after start.
 ///
 /// The start snapshot is the table that `start()` captured, before the host
 /// ran any of its own work. A fully bound table holds its final values from
@@ -77,7 +77,7 @@ pub(crate) fn dispatch_targets(
                 REDIRECTED_STRENGTH,
                 Evidence::DispatchRedirected {
                     detail: BoundedText::new(format!(
-                        "dispatch targets of the main image that start did not hold: {}, first at {first:#x}",
+                        "dispatch targets that moved after start: {}, first at {first:#x}",
                         redirected.len()
                     )),
                 },
