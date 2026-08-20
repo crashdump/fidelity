@@ -207,10 +207,16 @@ pub extern "system" fn Java_fidelity_probe_Harness_dispatchTargetCount(
 
 /// How long one measurement runs, and the smallest number of runs it takes.
 ///
-/// Both match `crates/probe/measure.rs`, so this number and the numbers that
-/// the `cost` examples print compare directly.
+/// The bound matches `crates/probe/measure.rs`. The run count does not, and
+/// the statistic is the reason. That loop reports a mean, which every sample
+/// improves. This loop reports the fastest call, which needs enough samples to
+/// find a quiet one. Measured on 2026-08-20: at 10 runs one cycle reported
+/// 12.2 ms, 12.6 ms, 20.0 ms, and 26.6 ms, and at 100 runs the same cycle on
+/// the same machine reported 11.0 ms, 11.3 ms, and 11.3 ms. The 200 ms bound
+/// alone gives a 10 ms cycle about 15 samples, and 15 samples rarely hold a
+/// quiet one.
 const BOUND: Duration = Duration::from_millis(200);
-const RUNS: u32 = 10;
+const RUNS: u32 = 100;
 
 /// The fastest cost of one identity read in this process, in microseconds.
 ///
@@ -240,6 +246,12 @@ pub extern "system" fn Java_fidelity_probe_Harness_identityCostMicros(
 /// The cycle is every read that a detector makes, and the worker makes them
 /// all on each pass. The identity read runs twice, because platform trust and
 /// expected identity are two detectors and each one reads for itself.
+///
+/// The list below is `Detectors::scan_cheap`, in its order, and it must stay
+/// that way. Until 2026-08-20 it held six of the eight, and it omitted
+/// `system_build` and `machine_host`, so the ceiling gate covered neither and
+/// the recorded cycle understated a real one. A review found that, and
+/// `READS` in `Harness.kt` names the same eight.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fidelity_probe_Harness_cycleCostMicros(
     _env: *mut c_void,
@@ -249,9 +261,8 @@ pub extern "system" fn Java_fidelity_probe_Harness_cycleCostMicros(
     let environment: &dyn Environment = &probe;
     // The value matches no archive. A comparison costs the same either way,
     // because the archive read in front of it is the whole cost.
-    let expected = ExpectedIdentity::new().android(Choice::Value(CertificateSha256::from_bytes(
-        [0; 32],
-    )));
+    let expected =
+        ExpectedIdentity::new().android(Choice::Value(CertificateSha256::from_bytes([0; 32])));
     micros(|| {
         let probe = black_box(environment);
         black_box(probe.code_identity());
@@ -260,7 +271,62 @@ pub extern "system" fn Java_fidelity_probe_Harness_cycleCostMicros(
         black_box(probe.code_regions());
         black_box(probe.code_origin());
         black_box(probe.dispatch_targets());
+        black_box(probe.system_build());
+        black_box(probe.machine_host());
     })
+}
+
+/// What this call returns for an index that names no read.
+const NO_SUCH_READ: i32 = -1;
+
+/// The fastest cost of one read of the cycle, in microseconds, by index.
+///
+/// A cycle is one number, and one number names no cause. On 2026-08-20 this
+/// call reported 26.6 ms against a recorded 2.4 ms, the ceiling row failed, and
+/// nothing stated which read had moved. This call answers that, so the next
+/// such move names itself. Every read turned out to be innocent, and
+/// `tests/platform/README.md` holds what was not.
+///
+/// The index follows the order that
+/// [`Java_fidelity_probe_Harness_cycleCostMicros`] reads in. An index outside
+/// that range returns [`NO_SUCH_READ`], which the test separates from a cost.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fidelity_probe_Harness_readCostMicros(
+    _env: *mut c_void,
+    _class: *mut c_void,
+    which: i32,
+) -> i32 {
+    let probe = AndroidEnvironment::new();
+    let environment: &dyn Environment = &probe;
+    let expected =
+        ExpectedIdentity::new().android(Choice::Value(CertificateSha256::from_bytes([0; 32])));
+    match which {
+        0 => micros(|| {
+            black_box(black_box(environment).code_identity());
+        }),
+        1 => micros(|| {
+            black_box(black_box(environment).identity_match(&expected));
+        }),
+        2 => micros(|| {
+            black_box(black_box(environment).tracer_state());
+        }),
+        3 => micros(|| {
+            black_box(black_box(environment).code_regions());
+        }),
+        4 => micros(|| {
+            black_box(black_box(environment).code_origin());
+        }),
+        5 => micros(|| {
+            black_box(black_box(environment).dispatch_targets());
+        }),
+        6 => micros(|| {
+            black_box(black_box(environment).system_build());
+        }),
+        7 => micros(|| {
+            black_box(black_box(environment).machine_host());
+        }),
+        _ => NO_SUCH_READ,
+    }
 }
 
 /// The literal that the guarded constant below carries.

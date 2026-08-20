@@ -7,6 +7,8 @@
 //! [detectors and platforms](../../../../docs/plan/04-detectors-and-platforms.md)
 //! holds the strength and the coverage limits.
 
+use std::io;
+
 use fidelity_core::{Emulation, MachineHost, Observation};
 use fidelity_formats::smbios::vendor::names_a_monitor;
 use fidelity_types::BoundedText;
@@ -25,16 +27,27 @@ impl Emulation for LinuxEnvironment {
     fn machine_host(&self) -> Observation<MachineHost> {
         // The firmware answers first, because it names the monitor and the bus
         // only states that one is there.
-        if let Some(field) = named_monitor() {
-            return Observation::Fact(MachineHost::VirtualMachine {
-                detail: BoundedText::new(format!("the firmware names the machine {field}")),
-            });
+        match named_monitor() {
+            Ok(Some(field)) => {
+                return Observation::Fact(MachineHost::VirtualMachine {
+                    detail: BoundedText::new(format!("the firmware names the machine {field}")),
+                });
+            }
+            Ok(None) => {}
+            // A read that failed must not read as a machine that named no
+            // monitor, because the detector would then report the hardware
+            // after a failed check. A failed read reports its own health.
+            Err(error) => return failed(&error),
         }
 
-        if dmi::holds_a_paravirtual_device() {
-            return Observation::Fact(MachineHost::VirtualMachine {
-                detail: BoundedText::new(PARAVIRTUAL),
-            });
+        match dmi::holds_a_paravirtual_device() {
+            Ok(true) => {
+                return Observation::Fact(MachineHost::VirtualMachine {
+                    detail: BoundedText::new(PARAVIRTUAL),
+                });
+            }
+            Ok(false) => {}
+            Err(error) => return failed(&error),
         }
 
         // Neither source answered. A machine that runs on the hardware reaches
@@ -45,13 +58,22 @@ impl Emulation for LinuxEnvironment {
     }
 }
 
+/// Reports a firmware read that failed, so the detector states its health.
+fn failed(error: &io::Error) -> Observation<MachineHost> {
+    Observation::Failed {
+        detail: BoundedText::new(format!("the firmware read failed: {error}")),
+    }
+}
+
 /// The firmware field that names a monitor, when the firmware states one.
 ///
 /// The field owns its text, because the judgment borrows from the two files
 /// that the boundary read and the caller outlives both.
-fn named_monitor() -> Option<String> {
-    let identity = dmi::firmware_identity()?;
-    names_a_monitor(&identity.manufacturer, &identity.product).map(ToOwned::to_owned)
+fn named_monitor() -> io::Result<Option<String>> {
+    let Some(identity) = dmi::firmware_identity()? else {
+        return Ok(None);
+    };
+    Ok(names_a_monitor(&identity.manufacturer, &identity.product).map(ToOwned::to_owned))
 }
 
 #[cfg(test)]
@@ -63,9 +85,11 @@ mod tests {
     #[test]
     fn the_probe_reads_the_machine_that_runs_this_system() {
         // The live control. Which of the two facts it gives depends on the
-        // machine, and `tests/platform/README.md` records both. This capability
-        // reports no failure at all: an absent source is an answer here, not a
-        // broken read, so the only wrong result is a panic.
+        // machine, and `tests/platform/README.md` records both. An absent
+        // source is an answer here and not a broken read, so a machine that
+        // reads its firmware reports a fact. A read that failed reports its
+        // health instead, and this machine reads its firmware, so a `Failed`
+        // here is a defect that this control catches.
         let observation = LinuxEnvironment::new().machine_host();
         assert!(
             matches!(

@@ -122,6 +122,21 @@ class HarnessTest {
         val identity = Harness.identityCostMicros()
         val cycle = Harness.cycleCostMicros()
         Log.i("fidelity", "code_identity ${identity}us, one worker cycle ${cycle}us")
+
+        // The breakdown runs before the assertions, so a failed ceiling names
+        // the read that caused it. A cycle is one number, and one number said
+        // nothing when this cycle grew five times between two recorded runs.
+        var sum = 0
+        for (index in Harness.READS.indices) {
+            val cost = Harness.readCostMicros(index)
+            sum += cost
+            Log.i("fidelity", "${Harness.READS[index]} ${cost}us")
+        }
+        Log.i(
+            "fidelity",
+            "the ${Harness.READS.size} reads sum to ${sum}us, against a cycle of ${cycle}us",
+        )
+
         assertTrue("the reads must do real work, and they reported ${identity}us", identity > 0)
         assertTrue("code_identity cost ${identity}us, above ${IDENTITY_CEILING}us", identity <= IDENTITY_CEILING)
         assertTrue("one cycle cost ${cycle}us, above ${CYCLE_CEILING}us", cycle <= CYCLE_CEILING)
@@ -147,11 +162,17 @@ class HarnessTest {
     private companion object {
         // The recorded ceilings, in microseconds. Measured on Android 37 on
         // 2026-08-11: the identity read costs about 510 us, and one cycle
-        // costs about 2.4 ms. Both numbers are the fastest call rather than
-        // the mean, and even so the emulator produced single runs of 5.8 ms
-        // and 10.8 ms for the cycle. The ceilings sit well above that, because
-        // they catch a regression of one order and not a noisy neighbour.
-        // docs/plan/07-state-and-budgets.md holds the numbers themselves.
+        // costs about 2.4 ms. A fresh emulator still reports those two numbers
+        // on 2026-08-20, at 549 us to 849 us and 2.86 ms to 2.93 ms over 13
+        // runs. Both are the fastest call rather than the mean, and the
+        // ceilings sit about eight times over them, because they catch a
+        // regression of one order and not a noisy neighbour.
+        //
+        // These two numbers held while the row that reads them failed, and the
+        // harness measured itself wrong rather than the code getting slower.
+        // `RUNS` in the harness is the fix, and
+        // tests/platform/README.md#the-android-cost-ceiling holds the whole
+        // measurement. docs/plan/07-state-and-budgets.md holds the numbers.
         const val IDENTITY_CEILING = 4000
         const val CYCLE_CEILING = 20000
     }

@@ -55,12 +55,12 @@ The capability and system names match the coverage matrix exactly, because the t
 | `injection` | `instrumentation.unaccounted_code` | Android | Android 37, emulator, 2026-08-18 | `inject-clean-android`: a plain run accounts for every executable region it holds. A real runtime names its code caches `[anon_shmem:dalvik-jit-code-cache]`, so they stay distinct from anonymous memory. | `inject-hostile-android`: `agent.so`, through `LD_PRELOAD`, maps 16 KiB with no file behind it, reports `Medium`, `unaccounted executable memory: 16384 bytes, region count 1` |
 | `injection` | `instrumentation.unaccounted_code` | Windows | Windows 11 Pro, build 10.0.26200, ARM64, in the QEMU guest, 2026-08-15 | a plain run accounts for every executable region that it holds | `inject-windows.c` maps 64 KiB with no file behind it, before the subject runs its first instruction, reported `Medium`, `unaccounted executable memory: 65536 bytes, region count 1`, and the operation denied |
 | `dispatch` | `instrumentation.dispatch_targets` | Linux | Debian 13, kernel 6.12, in the QEMU guest, 2026-08-19 | `dispatch-clean-linux`: the `redirect` example runs 40 s with no finding. The main image binds its dispatch table fully, so every entry holds its start value and none moves. | `dispatch-hostile-linux`: `hook.c` arrives with `LD_PRELOAD`, waits 3 s, then points the `memcpy` entry of the main image at a forwarder of its own, which calls the real one, so the subject keeps running. The runtime baseline stays clean, and this detector reports after 6.4 s, `Medium`, `dispatch targets that moved after start: 1`. |
-| `dispatch` | `instrumentation.dispatch_targets` | Windows | Windows 11 Pro, build 10.0.26200, ARM64, in the QEMU guest, 2026-08-19 | `dispatch-clean-windows`: the `redirect` example runs 40 s with no finding. Measured on the same guest: the main module holds 71 import entries, none outside a loaded image and none that moved over three seconds, because Windows binds the static import table at load. | `dispatch-hostile-windows`: `iat-hook-windows.c` redirects the `SetUnhandledExceptionFilter` import of the running subject to an address that another import already holds, from outside with `WriteProcessMemory`. The import sits in a data section, so the runtime baseline stays clean, and this detector reports after 5.8 s, `Medium`, `dispatch targets that moved after start: 1`. |
+| `dispatch` | `instrumentation.dispatch_targets` | Windows | Windows 11 Pro, build 10.0.26200, ARM64, in the QEMU guest, 2026-08-19 | `dispatch-clean-windows`: the `redirect` example runs 40 s with no finding. Measured on the same guest: the main module holds 71 import entries, none outside a loaded image and none that moved over three seconds, because Windows binds the static import table at load. | `dispatch-hostile-windows`: `iat-hook-windows.c` redirects the `SetUnhandledExceptionFilter` import of the running subject to an address that another import already holds, from outside with `WriteProcessMemory`. The import sits in a data section, so the runtime baseline stays clean, and this detector reports after 5.8 s, `Medium`, `dispatch targets that moved after start: 1`. `dispatch-hidden-windows`, on the same guest, 2026-08-20: `hidden-iat-hook-windows.c` writes zero to one unused startup import, which is a fake terminator. It redirects a later import in the same library, behind that zero. A walk of the address table stopped at the zero and reported clean. The reader counts the lookup table, so both slots stay in the snapshot. It reports `Medium`, `dispatch targets that moved after start: 2`. |
 | `dispatch` | `instrumentation.dispatch_targets` | macOS | macOS 26.5.2, ARM64, 2026-08-20 | `dispatch-clean-macos`: the `redirect` example runs 40 s with no finding. The main image carries `LC_DYLD_CHAINED_FIXUPS`, so the loader bound every import before the process ran, and 73 to 96 pointers sit in `__got` with no lazy table beside them | `dispatch-hostile-macos`: `hook-macos.c` arrives with the image, waits 3 s, then points the `memcpy` pointer of the main image at a forwarder of its own. The detector reports `Medium`, `dispatch targets that moved after start: 1`, after 6.7 s. The runtime baseline stayed clean over 40 s in the same conditions, which is the result that this detector exists for. |
 | `dispatch` | `instrumentation.dispatch_targets` | iOS | iOS 18.4, simulator, 2026-08-20 | `dispatch-clean-ios`: the same example and the same 40 s, in the simulator | `dispatch-hostile-ios`: the same agent, built for the simulator and inserted with `SIMCTL_CHILD_DYLD_INSERT_LIBRARIES`, caught after 6.2 s. iOS and macOS share the Mach-O layout and the loader, so one walk answers both. |
 | `dispatch` | `instrumentation.dispatch_targets` | Android | Android 16, API 36, emulator, 2026-08-20 | `dispatch-clean-android`: the `redirect` example runs 40 s with no finding. `android-instrumented` holds the arm that matters, and it is the only one an application process can give: the probe named `libfidelity_harness.so`, the library that the application loaded, and reported its 55 targets. A shell binary cannot fail that way, because there the library and the main image are one image. | `dispatch-hostile-android`: `hook.c`, built with the NDK and preloaded, points the `memcpy` entry of the main image at a forwarder of its own. The detector reports `Medium`, `dispatch targets that moved after start: 1`, after 6.1 s. The `late` example under the same hook reported no code after start over 40 s, so the runtime baseline stays clean and this detector is the only one that sees it. |
 | `emulation` | `virtualization.machine_host` | macOS | macOS 26.5 bare metal and macOS 26.6.2 in the guest, 2026-08-18 | `machine-hardware-macos`: this development machine, a MacBookPro18,4, reports `kern.hv_vmm_present=0`, so the detector reports clean and the operation is allowed | `machine-guest-macos`: the same binary inside the Virtualization.framework guest that `tests/platform/vm/macos/` builds reports `kern.hv_vmm_present=1`, and the detector reports `Medium`, `the kernel reports kern.hv_vmm_present=1, so a virtual machine monitor runs this system`, and the operation is denied |
-| `emulation` | `virtualization.machine_host` | Linux | Debian 13, kernel 6.12, in the QEMU guest, 2026-08-19 | none. This project owns no bare-metal Linux, and every Linux control runs in a guest. The gaps table below holds it. | `machine-guest-linux`: the guest reports `sys_vendor=QEMU` and `product_name=QEMU Virtual Machine`, and the detector reports `Medium`, `the firmware names the machine QEMU`, and the operation is denied. A second monitor covers the other source: an ARM64 Linux guest under the Apple hypervisor, which OrbStack runs, exposes no `/sys/class/dmi` at all and holds twelve virtio devices, and the same binary there reports `Medium`, `the kernel holds a virtio device, which needs a monitor to answer it`. That arm is manual, because it needs a container runtime that the guest set does not hold. |
+| `emulation` | `virtualization.machine_host` | Linux | Debian 13, kernel 6.12, in the QEMU guest, 2026-08-19 | none. This project owns no bare-metal Linux, and every Linux control runs in a guest. The gaps table below holds it. | `machine-guest-linux`: the guest reports `sys_vendor=QEMU` and `product_name=QEMU Virtual Machine`, and the detector reports `Medium`, `the firmware names the machine QEMU`, and the operation is denied. A second monitor covers the other source: an ARM64 Linux guest under the Apple hypervisor, which OrbStack runs, exposes no `/sys/class/dmi` at all and holds twelve virtio devices, and the same binary there reports `Medium`, `the kernel holds a virtio device, which needs a monitor to answer it`. That arm is manual, because it needs a container runtime that the guest set does not hold. `machine-masked-linux`, on the same guest, 2026-08-20, holds the third case: a read that fails. A user and mount namespace holds a fresh tmpfs over `/sys/class/dmi`, with a file named `id` in it. A read of `sys_vendor` then fails with `ENOTDIR`. The detector reports `Low`, `DetectorHealth`, `the firmware read failed: Not a directory (os error 20)`, because a failed read reports its health and never the hardware. |
 | `emulation` | `virtualization.machine_host` | Windows | Windows 11 Pro, build 10.0.26200, ARM64, in the QEMU guest, 2026-08-19 | none. This project owns no bare-metal Windows, and every Windows control runs in the guest. The gaps table below holds it. | `machine-guest-windows`: `GetSystemFirmwareTable` with the `RSMB` provider returns a 383-byte table whose System Information structure names `QEMU` and `QEMU Virtual Machine`, and the detector reports `Medium`, `the firmware names the machine QEMU`, and the operation is denied. The captured table is the fixture that the reader tests against. |
 | `emulation` | `virtualization.machine_host` | Android | Android 37, emulator, 2026-08-19 | none. This project owns no physical Android device, and both system images are emulators. The gaps table below holds it. | `machine-emulator-android`: the image reports `ro.boot.qemu=1`, `ro.build.characteristics=emulator`, and `ro.hardware=ranchu`, and the detector reports `Medium`, `the bootloader reports ro.boot.qemu=1`, and the operation is denied |
 | `device` | `device_compromise.system_build` | Android | Android 36 and 37, emulators | a Play Store system image, which reports `release-keys` and `ro.debuggable=0`, and stays clean | a Google APIs system image, which reports `dev-keys` and `ro.debuggable=1`, and reports, `Medium` |
@@ -377,8 +377,81 @@ design:
 
 The Android ceilings are a test rather than a note.
 `HarnessTest.the_identity_read_stays_inside_its_recorded_ceiling` fails above 4 ms for one identity
-read or 9 ms for one cycle. Both hold about four times the measured value, because an emulator
-under test is not a quiet machine. The rule was broken on purpose and it failed as it should.
+read or 20 ms for one cycle. Both hold about eight times the measured value, because an emulator
+under test is not a quiet machine. The rule was broken on purpose and it failed as it should. That
+row then failed both runs of 2026-08-20, and [the section below](#the-android-cost-ceiling) holds
+what it turned out to be.
+
+## The Android cost ceiling
+
+`android-instrumented` failed the run of 2026-08-20 at 06:40 UTC, at 22.6 ms against a 20 ms
+ceiling, and the record called the ceiling an open product decision. It was not. The ceiling was
+right and the measurement was wrong. The run of 09:35 UTC the same day passes that row, and the
+ceiling did not move. Every row below was measured on 2026-08-20, on this machine, with the same
+code:
+
+| Emulator instance | Samples | One cycle |
+|---|---|---|
+| API 36, 4 KiB pages, already running before this work | 10 | 12.2 ms, 12.6 ms, 20.0 ms, 26.6 ms |
+| the same instance, minutes later, and nothing else changed | 100 | 11.0 ms, 11.3 ms, 11.3 ms |
+| API 36, 4 KiB pages, a fresh cold boot, 13 runs | 100 | 2.86 ms to 2.92 ms |
+| the same AVD, from its saved snapshot, 3 runs | 100 | 2.86 ms to 2.93 ms |
+| API 37.1, 16 KiB pages, a fresh cold boot, 6 runs | 100 | 6.9 ms to 8.6 ms |
+
+**The harness reports the fastest call, and 10 samples rarely hold a quiet one.** The 200 ms bound
+gives a 10 ms cycle about 15 runs, so the reported minimum moved with the noise and not with the
+cost. The first two rows are one emulator minutes apart, and only the sample count differs: the
+spread falls from 118 percent to 3 percent. `RUNS` in the harness is now 100, and the bound still
+matches `crates/probe/measure.rs`. That loop reports a mean, which every sample improves, and this
+one reports a minimum, which needs enough samples to find the floor.
+
+**A fresh emulator reports the recorded number.** The budget records 510 us for one identity read
+and 2.4 ms for one cycle, from 2026-08-11. A fresh instance of the AVD that the recipe above names
+reports 549 us to 849 us and 2.86 ms to 2.93 ms over 16 runs. No read got slower, and the budget
+stands as written.
+
+**The AVD decides the number, so a record names its AVD.** The two AVDs above differ by 2.5 times.
+They differ in API level and in page size, and a 16 KiB page changes what a mapping table holds,
+which two of the reads walk.
+
+Three other causes were measured and ruled out:
+
+- the reads did not grow. The cycle held five of the six it then measured on 2026-08-10 already,
+  and `dispatch_targets` adds 19 us to 41 us;
+- host load is not it. The cycle read 6.9 ms, 8.6 ms, and 7.0 ms with both guests running, and
+  8.4 ms, 7.8 ms, and 8.2 ms with both stopped; and
+- accumulated state is not it over a short run. Ten consecutive runs on a fresh instance held
+  2.86 ms to 2.92 ms with no drift.
+
+**What the slow instance did is not identified.** It was about four times slower than a fresh one
+of the same AVD and the same image. It was already running when this work began, its age is not
+recorded, and it is now gone, so nothing reproduces it. A cold boot and a snapshot boot both report
+the fast number. A slow row is therefore a reason to boot a fresh emulator before it is a reason to
+raise a ceiling.
+
+**The per-read breakdown found all of this, and it is new.**
+`HarnessTest.the_identity_read_stays_inside_its_recorded_ceiling` now logs what each read of the
+cycle costs before it asserts, so a failed ceiling names the read that caused it. On the slow
+instance the six then measured summed to 13.6 ms against a reported cycle of 26.6 ms, and that gap
+is what showed that the measurement was at fault rather than the code. A cycle is one number, and
+one number named no cause at all.
+
+**The cycle measured six of eight reads, and a review found that on 2026-08-20.**
+`Detectors::scan_cheap` runs eight detectors, and both the harness cycle and every `cost` example
+stopped at `dispatch_targets`. So `system_build` and `machine_host` went unmeasured on every
+platform that answers them, the 20 ms gate covered neither, and every recorded cycle understated a
+real one. All eight now run in both places. The two cost little on Android, at 5 us and under 1 us,
+and the cycle moved from 2.89 ms to 3.06 ms on the same fresh emulator, so no recorded ceiling
+moves. macOS reports `machine_host` at 2.0 us. The lesson is the shape of the defect rather than
+its size: a measurement that names its own read list drifts from the code that owns it, and nothing
+compared the two.
+
+One caution came out of the same day, and it applies to every absolute in
+[state and budgets](../../docs/plan/07-state-and-budgets.md#measured-cost). The macOS `cost`
+example, run twice about four minutes apart on this machine, reported 250 us and 209 us for
+`code_identity` and 34.7 us and 21.8 us for `tracer_state`, against 190 us and 18 us recorded. So a
+recorded cost carries the machine that measured it, and a reading within about two times of the
+record says nothing on its own.
 
 ## The extraction gate
 
@@ -488,19 +561,19 @@ failed none in 150. The rebuild is therefore not the fix, and the code does not 
 
 ## The generated record
 
-`run.sh` ran the whole set on 2026-08-20 at 06:40 UTC, on macOS 26 and ARM64, with a booted iOS
-simulator, both guests running, and an Android 36 emulator attached. It wrote 115 rows: 109 passed,
-4 `manual`, 1 skipped, and 1 failed. The skipped row is Miri, which keeps its own schedule. A run
-takes about 13 minutes, or 16 with `FIDELITY_WITH_MIRI=1`. Eleven clean controls spend 40 seconds
-each waiting for a finding that must never arrive.
+`run.sh` ran the whole set on 2026-08-20 at 10:44 UTC, on macOS 26 and ARM64, with a booted iOS
+simulator, the Linux, Windows, and macOS guests running, and an Android 36 emulator attached. It
+wrote 117 rows: 112 passed, 4 `manual`, and 1 skipped. The skipped row is Miri, which keeps its own
+schedule. A run takes about 12 minutes, or 16 with `FIDELITY_WITH_MIRI=1`. Eleven clean controls
+spend 40 seconds each waiting for a finding that must never arrive. No row failed.
 
-**The one failed row is a cost ceiling, and the ceiling is what fails.**
-`android-instrumented` asserts that one cycle of an application process stays inside 20 ms, and it
-read 22.6 ms in that run. An earlier run of the same day read 23.5 ms at a load average of 19.6 on
-10 cores, and a full run needs both guests, an emulator, and a simulator at once, so a loaded
-machine looks like the whole explanation. It is not.
+**The run before it failed one row, and the measurement is what failed.** That run was the same day
+at 06:40 UTC. `android-instrumented` asserts that one cycle of an application process stays inside
+20 ms, and it read 22.6 ms. An earlier run of the same day read 23.5 ms at a load average of 19.6
+on 10 cores, and a full run needs both guests, an emulator, and a simulator at once, so a loaded
+machine looked like the whole explanation. It was not.
 
-Eleven runs on 2026-08-20, on an idle machine, measured the same cycle:
+Eleven runs on 2026-08-20 measured the same cycle, and each one took 10 samples:
 
 | The measurement | Runs | Lowest | Highest |
 |---|---|---|---|
@@ -509,10 +582,9 @@ Eleven runs on 2026-08-20, on an idle machine, measured the same cycle:
 
 The two sets overlap on both ends, so the dispatch read cannot be separated from the noise of the
 measurement, which is what `cost-android` already implies: it measures that read at 2.0 us against
-a cycle of about 12,800 us, or one part in six thousand. **The idle machine reached 20.0 ms on its
-own**, which is the number that matters. The ceiling sits inside the spread of the thing it
-measures, so a loaded run fails it and an idle run can too. Whether to raise it, to measure the
-cycle differently, or to leave the row failing is a product decision, and it is open.
+a cycle of about 12,800 us, or one part in six thousand. That reading holds. The spread itself
+belongs to neither the machine nor the code, and [the section above](#the-android-cost-ceiling)
+holds what it belongs to, the eight measurements that found it, and the one-line fix.
 
 **Read the header date before you trust a row.** A record is a snapshot of the tree that produced
 it, and a commit can carry both the record and code that landed after the run. That happened on
@@ -561,6 +633,7 @@ single figure would read as a constant:
 | `inject-hostile-windows` | Windows | `inject-windows.c` maps 64 KiB with no file behind it, reported, and the operation denied |
 | `inject-clean-windows` | Windows | a plain run accounts for every executable region it holds |
 | `dispatch-hostile-windows` | Windows | `iat-hook-windows.c` redirects an import, caught after 5.8 s, `Medium` |
+| `dispatch-hidden-windows` | Windows | `hidden-iat-hook-windows.c` hides a redirect behind a fake zero terminator, caught, `Medium`, 2 targets moved |
 | `dispatch-clean-windows` | Windows | 40 s with no finding, and the baseline stays clean too |
 | `tracer-at-start-windows` | Windows | `attach-windows.c` traces the subject from the start, found by the initial scan |
 | `tracer-attaches-windows` | Windows | `attach-windows.c` attaches after start, caught after 6.1 s |

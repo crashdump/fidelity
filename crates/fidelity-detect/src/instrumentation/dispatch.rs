@@ -1,6 +1,8 @@
 use fidelity_core::{Dispatch, DispatchTargets, Observation, Target};
 use fidelity_types::{BoundedText, Category, Detector, Evidence, Finding, Outcome, SignalStrength};
 
+use crate::Captured;
+
 /// A call target of the image of the host points somewhere else than at start.
 pub const DISPATCH_TARGETS: Detector = Detector::new(
     9,
@@ -42,13 +44,20 @@ const TRUNCATED: &str = "the image of the host holds more dispatch targets than 
 /// before the process ran, so a later change arrived from outside.
 pub(crate) fn dispatch_targets(
     environment: &(impl Dispatch + ?Sized),
-    start: Option<&DispatchTargets>,
+    start: Captured<&DispatchTargets>,
     now_unix_ms: u64,
 ) -> Outcome {
-    let Some(start) = start else {
-        return Outcome::Unsupported {
-            reason: NO_SNAPSHOT,
-        };
+    let start = match start {
+        Captured::Snapshot(start) => start,
+        Captured::Unsupported => {
+            return Outcome::Unsupported {
+                reason: NO_SNAPSHOT,
+            };
+        }
+        // The start read failed, so this is a health finding and not a gap. A
+        // gap would state that the platform cannot answer, which a transient
+        // failure does not, and the detector would then stay silent forever.
+        Captured::Failed(detail) => return health(detail, now_unix_ms),
     };
 
     // A table that the loader did not bind fully rewrites its own entries on
@@ -103,9 +112,10 @@ fn health(detail: BoundedText, now_unix_ms: u64) -> Outcome {
 mod tests {
     use fidelity_core::{DispatchTargets, Observation, Target};
     use fidelity_testkit::FakeEnvironment;
-    use fidelity_types::{Evidence, Outcome, SignalStrength};
+    use fidelity_types::{BoundedText, Evidence, Outcome, SignalStrength};
 
     use super::{DISPATCH_TARGETS, dispatch_targets};
+    use crate::Captured;
 
     const NOW: u64 = 1_700_000_000_000;
 
@@ -125,7 +135,7 @@ mod tests {
         let environment =
             FakeEnvironment::new().with_dispatch_targets(Observation::Fact(start.clone()));
         assert_eq!(
-            dispatch_targets(&environment, Some(&start), NOW),
+            dispatch_targets(&environment, Captured::Snapshot(&start), NOW),
             Outcome::Clean
         );
     }
@@ -135,7 +145,9 @@ mod tests {
         let start = bound(&[(0x1000, 0xa000), (0x1008, 0xb000)]);
         let now = bound(&[(0x1000, 0xa000), (0x1008, 0xc000)]);
         let environment = FakeEnvironment::new().with_dispatch_targets(Observation::Fact(now));
-        let Outcome::Finding(finding) = dispatch_targets(&environment, Some(&start), NOW) else {
+        let Outcome::Finding(finding) =
+            dispatch_targets(&environment, Captured::Snapshot(&start), NOW)
+        else {
             panic!("a redirected target must report a finding");
         };
         assert_eq!(finding.strength(), SignalStrength::Medium);
@@ -153,7 +165,7 @@ mod tests {
         let environment =
             FakeEnvironment::new().with_dispatch_targets(Observation::Fact(start.clone()));
         assert!(matches!(
-            dispatch_targets(&environment, Some(&start), NOW),
+            dispatch_targets(&environment, Captured::Snapshot(&start), NOW),
             Outcome::Unsupported { .. }
         ));
     }
@@ -163,7 +175,7 @@ mod tests {
         let environment = FakeEnvironment::new()
             .with_dispatch_targets(Observation::Fact(bound(&[(0x1000, 0xa000)])));
         assert!(matches!(
-            dispatch_targets(&environment, None, NOW),
+            dispatch_targets(&environment, Captured::Unsupported, NOW),
             Outcome::Unsupported { .. }
         ));
     }
@@ -172,7 +184,7 @@ mod tests {
     fn a_platform_with_no_dispatch_probe_reports_unsupported() {
         let start = bound(&[(0x1000, 0xa000)]);
         assert!(matches!(
-            dispatch_targets(&FakeEnvironment::new(), Some(&start), NOW),
+            dispatch_targets(&FakeEnvironment::new(), Captured::Snapshot(&start), NOW),
             Outcome::Unsupported { .. }
         ));
     }
@@ -182,8 +194,26 @@ mod tests {
         let start = bound(&[(0x1000, 0xa000)]);
         let environment = FakeEnvironment::new()
             .with_dispatch_targets(Observation::failed("the loader walk returned nothing"));
-        let Outcome::Finding(finding) = dispatch_targets(&environment, Some(&start), NOW) else {
+        let Outcome::Finding(finding) =
+            dispatch_targets(&environment, Captured::Snapshot(&start), NOW)
+        else {
             panic!("a failed probe must report a health finding");
+        };
+        assert_eq!(finding.detector(), DISPATCH_TARGETS);
+        assert!(finding.evidence().is_detector_health());
+    }
+
+    #[test]
+    fn a_failed_start_capture_reports_a_health_finding_and_not_a_gap() {
+        // The read at `start()` failed, which is a transient fault and not a
+        // platform that cannot answer. An `Unsupported` here would disable the
+        // detector for the life of the runtime, so the outcome rule makes it a
+        // `Low` health finding. An `Option` merged the two until 2026-08-20.
+        let environment = FakeEnvironment::new()
+            .with_dispatch_targets(Observation::Fact(bound(&[(0x1000, 0xa000)])));
+        let start = Captured::Failed(BoundedText::new("the loader walk failed at start"));
+        let Outcome::Finding(finding) = dispatch_targets(&environment, start, NOW) else {
+            panic!("a failed start capture must report a health finding");
         };
         assert_eq!(finding.detector(), DISPATCH_TARGETS);
         assert!(finding.evidence().is_detector_health());

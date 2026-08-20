@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "fidelity"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "fidelity-cipher",
  "fidelity-core",
@@ -20,18 +20,18 @@ dependencies = [
 
 [[package]]
 name = "fidelity-cipher"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "fidelity-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "fidelity-types",
 ]
 
 [[package]]
 name = "fidelity-detect"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "fidelity-core",
  "fidelity-testkit",
@@ -40,7 +40,7 @@ dependencies = [
 
 [[package]]
 name = "fidelity-engine"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "fidelity-core",
  "fidelity-detect",
@@ -51,18 +51,18 @@ dependencies = [
 
 [[package]]
 name = "fidelity-formats"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "fidelity-macros"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "fidelity-cipher",
 ]
 
 [[package]]
 name = "fidelity-probe-android"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "fidelity-cipher",
  "fidelity-core",
@@ -72,7 +72,7 @@ dependencies = [
 
 [[package]]
 name = "fidelity-probe-apple"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "fidelity-core",
  "fidelity-formats",
@@ -81,7 +81,7 @@ dependencies = [
 
 [[package]]
 name = "fidelity-probe-linux"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "fidelity-cipher",
  "fidelity-core",
@@ -91,7 +91,7 @@ dependencies = [
 
 [[package]]
 name = "fidelity-probe-windows"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "fidelity-cipher",
  "fidelity-core",
@@ -101,7 +101,7 @@ dependencies = [
 
 [[package]]
 name = "fidelity-testkit"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "fidelity-core",
  "fidelity-types",
@@ -109,7 +109,7 @@ dependencies = [
 
 [[package]]
 name = "fidelity-types"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
 ]

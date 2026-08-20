@@ -378,6 +378,59 @@ fn the_format_crate_holds_no_platform_code_and_no_dependency() {
 }
 
 #[test]
+fn the_android_cost_measurement_reads_what_one_worker_cycle_reads() {
+    // The instrumented harness measures a worker cycle and names its own read
+    // list, and `Detectors::scan_cheap` owns the real one. The two drifted
+    // apart until 2026-08-20: the worker ran eight detectors and the
+    // measurement stopped at six, so `system_build` and `machine_host` went
+    // unmeasured on every run and the 20 ms ceiling covered neither. A review
+    // found that, and no test could have, because nothing compared the two.
+    //
+    // One detector reads once, so the counts must match. A new detector
+    // therefore fails this until the measurement grows with it.
+    let engine = fs::read_to_string(root().join("crates/fidelity-detect/src/lib.rs"))
+        .unwrap_or_else(|_| panic!("the detector crate must hold lib.rs"));
+    let Some(cheap) = engine.split_once("pub fn scan_cheap") else {
+        panic!("the detector crate must hold scan_cheap");
+    };
+    let Some(body) = cheap.1.split_once("\n    }") else {
+        panic!("scan_cheap must end");
+    };
+    let detectors = body.0.matches("guarded(").count();
+    assert!(detectors > 0, "scan_cheap must run a detector");
+
+    let harness = root().join("crates/probe/fidelity-probe-android/android");
+    let kotlin = fs::read_to_string(harness.join("src/main/kotlin/fidelity/probe/Harness.kt"))
+        .unwrap_or_else(|_| panic!("the harness must hold Harness.kt"));
+    let Some(list) = kotlin.split_once("val READS = arrayOf(") else {
+        panic!("the harness must name the reads of one cycle");
+    };
+    let Some(names) = list.1.split_once(')') else {
+        panic!("the read list must end");
+    };
+    let reads = names.0.matches('"').count() / 2;
+
+    let rust = fs::read_to_string(harness.join("harness/src/lib.rs"))
+        .unwrap_or_else(|_| panic!("the harness must hold lib.rs"));
+    let Some(cycle) = rust.split_once("fn Java_fidelity_probe_Harness_cycleCostMicros") else {
+        panic!("the harness must measure one cycle");
+    };
+    let Some(calls) = cycle.1.split_once("\n}") else {
+        panic!("the cycle must end");
+    };
+    let measured = calls.0.matches("black_box(probe.").count();
+
+    assert_eq!(
+        detectors, reads,
+        "the worker runs {detectors} detectors and the harness names {reads} reads"
+    );
+    assert_eq!(
+        detectors, measured,
+        "the worker runs {detectors} detectors and the measured cycle makes {measured} reads"
+    );
+}
+
+#[test]
 fn every_probe_crate_repeats_the_same_shape() {
     // `06-delivery.md` states that each probe holds `sys/` for the boundary,
     // then one module for each capability. A new probe that invents another

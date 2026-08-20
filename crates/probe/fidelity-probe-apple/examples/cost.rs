@@ -62,6 +62,9 @@ fn main() {
     measure::report("dispatch_targets", || {
         black_box(black_box(environment).dispatch_targets());
     });
+    measure::report("machine_host", || {
+        black_box(black_box(environment).machine_host());
+    });
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "ios")))]

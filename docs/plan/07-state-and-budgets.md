@@ -115,7 +115,15 @@ or less to its cycle, which is below the spread of that cycle, so the figures ab
 The Android figure was measured on 2026-08-20, on an Android 16 emulator with API 36, and the rest
 of that column came from an API 37 emulator. The two differ by more than the read does.
 
-Five facts decide how to read that table.
+Six facts decide how to read that table.
+
+**Every number above carries the machine that measured it.** The macOS `cost` example ran twice,
+about four minutes apart on 2026-08-20, and reported 250 us and 209 us for `code_identity` against
+190 us recorded, and 34.7 us and 21.8 us for `tracer_state` against 18 us. Another application held
+one core throughout both runs. An emulator moves further: the same Android cycle reports 2.9 ms on
+one AVD and 7 ms on another, which differ in API level and in page size. So a reading within about
+two times of a recorded number confirms nothing and refutes nothing, a recorded figure names the
+system that produced it, and a gate on cost reads an order rather than a percentage.
 
 **A translated x64 process pays for the walk, and not for the identity read.** Every column above is
 ARM64. An ARM64 Windows runs an x64 image under its own emulation, so one machine measures both
@@ -162,10 +170,14 @@ for both would nearly halve the cycle, and no measurement asks for that yet.
 The harness reports the fastest call, and the `cost` examples report a mean. The two run in
 different processes: an example owns its process, and the harness shares one with every other
 instrumented test, including the control that starts a Fidelity runtime. A mean would measure that
-worker as well, and it would move with the order that JUnit picks. Even the fastest call moves on
-an emulator, which produced single cycles of 5.8 ms and 10.8 ms, so
+worker as well, and it would move with the order that JUnit picks. A minimum needs enough samples
+to find a quiet call, so the harness takes 100 of them where the examples take what a 200 ms bound
+allows. Measured on 2026-08-20: at 10 samples one cycle reported 12.2 ms to 26.6 ms on one
+emulator, and at 100 samples the same emulator reported 11.0 ms to 11.3 ms. That gap failed the
+ceiling row on 2026-08-20, and `tests/platform/README.md` holds the whole measurement.
 `HarnessTest.the_identity_read_stays_inside_its_recorded_ceiling` holds ceilings of 4 ms and 20 ms.
-They catch a regression of one order rather than state the budget.
+They catch a regression of one order rather than state the budget, and a fresh emulator reconfirmed
+both figures above on 2026-08-20.
 
 **The iOS reads are nanoseconds because the image names no team.** The walk finds the signature,
 finds no entitlements slot, and stops. An image that names a team adds a scan of a small plist.

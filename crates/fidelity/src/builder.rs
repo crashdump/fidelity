@@ -2,7 +2,7 @@ use core::fmt;
 use std::sync::{Arc, Mutex};
 
 use fidelity_core::{Environment, Observation};
-use fidelity_detect::Detectors;
+use fidelity_detect::{Captured, Detectors};
 use fidelity_engine::{Hooks, Pending, Policy, State, Worker, now_unix_ms};
 use fidelity_types::{Action, Category, ExpectedIdentity, Finding, Platform, SignalStrength};
 
@@ -218,16 +218,21 @@ impl Builder {
         // compares against it. A platform that answers nothing leaves it
         // absent, and the detector reports that rather than a false clean.
         let baseline = match environment.code_regions() {
-            Observation::Fact(regions) => Some(regions),
-            Observation::Unsupported { .. } | Observation::Failed { .. } => None,
+            Observation::Fact(regions) => Captured::Snapshot(regions),
+            Observation::Unsupported { .. } => Captured::Unsupported,
+            // A read that failed here must not read as an unsupported platform.
+            // The detector reports a `Low` health finding on every scan, so the
+            // host learns the baseline is absent rather than seeing a silent gap.
+            Observation::Failed { detail } => Captured::Failed(detail),
         };
 
         // The dispatch snapshot is captured here for the same reason. A later
         // scan compares each call target of the main image against it, and a
         // platform that answers nothing leaves it absent.
         let dispatch = match environment.dispatch_targets() {
-            Observation::Fact(targets) => Some(targets),
-            Observation::Unsupported { .. } | Observation::Failed { .. } => None,
+            Observation::Fact(targets) => Captured::Snapshot(targets),
+            Observation::Unsupported { .. } => Captured::Unsupported,
+            Observation::Failed { detail } => Captured::Failed(detail),
         };
 
         let detectors = Detectors::new(self.identity, baseline, dispatch);

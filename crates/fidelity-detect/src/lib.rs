@@ -43,6 +43,42 @@ pub use integrity::{EXPECTED_IDENTITY, PLATFORM_TRUST, RUNTIME_BASELINE};
 pub use ui_abuse::{HOST_REPORT, host_report};
 pub use virtualization::MACHINE_HOST;
 
+/// What `start()` captured for a detector that compares against a snapshot.
+///
+/// A snapshot that `start()` reads is one of three things, and the two that
+/// are not a snapshot must stay apart. A platform that cannot answer is
+/// [`Unsupported`](Captured::Unsupported), and the detector states that gap for
+/// the life of the runtime. A read that failed is [`Failed`](Captured::Failed),
+/// and the detector reports a `Low` health finding, because a transient failure
+/// must never read as a platform that cannot answer. The outcome rule in
+/// `docs/plan/04-detectors-and-platforms.md` is why the two do not merge, and
+/// an `Option` merged them until 2026-08-20.
+#[derive(Debug)]
+pub enum Captured<T> {
+    /// The read answered, and the snapshot is here.
+    Snapshot(T),
+
+    /// The platform answers nothing, so the detector states a gap.
+    Unsupported,
+
+    /// The read failed, so the detector reports a `Low` health finding.
+    Failed(BoundedText),
+}
+
+impl<T> Captured<T> {
+    /// Borrows the snapshot, so the detector reads without taking ownership.
+    ///
+    /// This mirrors `Option::as_ref`, so a caller that held an `Option` keeps
+    /// the same shape.
+    pub fn as_ref(&self) -> Captured<&T> {
+        match self {
+            Self::Snapshot(value) => Captured::Snapshot(value),
+            Self::Unsupported => Captured::Unsupported,
+            Self::Failed(detail) => Captured::Failed(detail.clone()),
+        }
+    }
+}
+
 /// Every detector that this build composes.
 ///
 /// The engine creates one state slot for each entry, and an observation
@@ -65,8 +101,8 @@ pub const INVENTORY: &[Detector] = &[
 #[derive(Debug)]
 pub struct Detectors {
     expected: Option<ExpectedIdentity>,
-    baseline: Option<CodeRegions>,
-    dispatch: Option<DispatchTargets>,
+    baseline: Captured<CodeRegions>,
+    dispatch: Captured<DispatchTargets>,
 }
 
 impl Detectors {
@@ -79,8 +115,8 @@ impl Detectors {
     #[must_use]
     pub const fn new(
         expected: Option<ExpectedIdentity>,
-        baseline: Option<CodeRegions>,
-        dispatch: Option<DispatchTargets>,
+        baseline: Captured<CodeRegions>,
+        dispatch: Captured<DispatchTargets>,
     ) -> Self {
         Self {
             expected,
@@ -195,8 +231,8 @@ mod tests {
     };
 
     use super::{
-        Detectors, EXPECTED_IDENTITY, HOST_REPORT, INVENTORY, MACHINE_HOST, PLATFORM_TRUST,
-        RUNTIME_BASELINE, TRACER_PRESENT, UNACCOUNTED_CODE,
+        Captured, Detectors, EXPECTED_IDENTITY, HOST_REPORT, INVENTORY, MACHINE_HOST,
+        PLATFORM_TRUST, RUNTIME_BASELINE, TRACER_PRESENT, UNACCOUNTED_CODE,
     };
 
     const NOW: u64 = 1_700_000_000_000;
@@ -240,7 +276,8 @@ mod tests {
         // Without the catch this unwind ends the only worker thread, and the
         // runtime then reports nothing for the life of the process. The test
         // prints the panic that it causes, and that output is expected.
-        let outcomes = Detectors::new(None, None, None).scan_cheap(&PanickingTracer, NOW);
+        let outcomes = Detectors::new(None, Captured::Unsupported, Captured::Unsupported)
+            .scan_cheap(&PanickingTracer, NOW);
 
         assert_eq!(
             outcomes.len(),
@@ -281,7 +318,7 @@ mod tests {
         expected: Option<ExpectedIdentity>,
         detector: fidelity_types::Detector,
     ) -> Outcome {
-        Detectors::new(expected, None, None)
+        Detectors::new(expected, Captured::Unsupported, Captured::Unsupported)
             .scan_cheap(environment, NOW)
             .into_iter()
             .find(|(candidate, _)| *candidate == detector)
@@ -293,7 +330,8 @@ mod tests {
         // The engine creates one state slot for each inventory entry, and an
         // observation cannot create a slot, so a scan that reported a detector
         // the inventory lacks would report into nothing.
-        let reported = Detectors::new(None, None, None).scan_cheap(&FakeEnvironment::new(), NOW);
+        let reported = Detectors::new(None, Captured::Unsupported, Captured::Unsupported)
+            .scan_cheap(&FakeEnvironment::new(), NOW);
         for (detector, _) in &reported {
             assert!(
                 INVENTORY.contains(detector),
@@ -311,7 +349,8 @@ mod tests {
         // fill it. A scan that reported it would state something the host
         // never said.
         assert!(INVENTORY.contains(&HOST_REPORT));
-        let reported = Detectors::new(None, None, None).scan_cheap(&FakeEnvironment::new(), NOW);
+        let reported = Detectors::new(None, Captured::Unsupported, Captured::Unsupported)
+            .scan_cheap(&FakeEnvironment::new(), NOW);
         assert!(
             !reported
                 .iter()
@@ -648,7 +687,8 @@ mod tests {
         let now = CodeRegions::new(vec![Region::new(0x1000, 0x2000, true)]);
         let environment = FakeEnvironment::default().with_code_regions(Observation::Fact(now));
 
-        let outcomes = Detectors::new(None, Some(at_start), None).scan_cheap(&environment, NOW);
+        let outcomes = Detectors::new(None, Captured::Snapshot(at_start), Captured::Unsupported)
+            .scan_cheap(&environment, NOW);
         let Some((_, outcome)) = outcomes
             .iter()
             .find(|(detector, _)| *detector == RUNTIME_BASELINE)

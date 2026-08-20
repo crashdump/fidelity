@@ -336,7 +336,7 @@ mod tests {
         Lifecycle, Observation, Tracer, TracerState, WorkerSetup,
     };
     use fidelity_detect::{
-        Detectors, EXPECTED_IDENTITY, INVENTORY, PLATFORM_TRUST, TRACER_PRESENT,
+        Captured, Detectors, EXPECTED_IDENTITY, INVENTORY, PLATFORM_TRUST, TRACER_PRESENT,
     };
     use fidelity_testkit::FakeEnvironment;
     use fidelity_types::{
@@ -375,7 +375,7 @@ mod tests {
         Worker::new(
             Arc::clone(state),
             policy,
-            Detectors::new(expected, None, None),
+            Detectors::new(expected, Captured::Unsupported, Captured::Unsupported),
             Box::new(environment),
             None,
             hooks,
@@ -483,7 +483,7 @@ mod tests {
         let mut worker = Worker::new(
             Arc::clone(&state),
             policy,
-            Detectors::new(Some(expected), None, None),
+            Detectors::new(Some(expected), Captured::Unsupported, Captured::Unsupported),
             Box::new(environment),
             Some(Box::new(|_| panic!("the host callback fails"))),
             Hooks::detached(),
@@ -519,7 +519,7 @@ mod tests {
         Worker::new(
             Arc::clone(&state),
             policy,
-            Detectors::new(Some(expected), None, None),
+            Detectors::new(Some(expected), Captured::Unsupported, Captured::Unsupported),
             Box::new(environment),
             Some(Box::new(move |_| {
                 let snapshot = reader
@@ -600,7 +600,7 @@ mod tests {
         let worker = Worker::new(
             Arc::clone(&state),
             Policy::new(),
-            Detectors::new(None, None, None),
+            Detectors::new(None, Captured::Unsupported, Captured::Unsupported),
             Box::new(Counting),
             None,
             Hooks::detached(),
@@ -720,7 +720,7 @@ mod diagnostics {
     use std::sync::{Arc, Mutex, Once};
 
     use fidelity_core::{IdentityMatch, Observation};
-    use fidelity_detect::{Detectors, INVENTORY};
+    use fidelity_detect::{Captured, Detectors, INVENTORY};
     use fidelity_testkit::FakeEnvironment;
     use fidelity_types::{
         Action, BoundedText, Category, Choice, CodeRequirement, ExpectedIdentity, IdentityError,
@@ -831,7 +831,7 @@ mod diagnostics {
         Worker::new(
             Arc::clone(&state),
             policy,
-            Detectors::new(Some(expected), None, None),
+            Detectors::new(Some(expected), Captured::Unsupported, Captured::Unsupported),
             Box::new(environment),
             None,
             Hooks::detached(),

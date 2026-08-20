@@ -8,7 +8,7 @@ only when it changes what `fidelity` exposes.
 This file records released versions. The work before the first release lives in the git history and
 in `tests/platform/README.md`, which states what each platform proved and what it did not.
 
-## Unreleased
+## 0.2.0 - 2026-08-20
 
 - The `Instrumentation` category gains a second detector. `instrumentation.dispatch_targets`
   reports `Medium` when a call target of the main image points somewhere else than at start. It
@@ -24,13 +24,26 @@ in `tests/platform/README.md`, which states what each platform proved and what i
   application shares and which no call of the host reaches. `Evidence` gains a `DispatchRedirected`
   variant, which is an additive change.
 - The `Virtualization` category gains its first detector. `virtualization.machine_host` reports
-  `Medium` when the kernel states that a virtual machine monitor runs the system. macOS answers it,
-  through `kern.hv_vmm_present`, and the other four platforms report `Unsupported`. `Evidence` gains
-  a `VirtualMachineHost` variant, which is an additive change.
+  `Medium` when the system states that a virtual machine monitor runs below it. Four platforms
+  answer. macOS reads `kern.hv_vmm_present`, Linux reads the firmware tables and the virtio
+  devices, Windows reads the firmware tables, and Android reads the bootloader properties. iOS
+  reports `Unsupported`, because a simulator process reads the kernel of the Mac below it and this
+  project has read no device. `Evidence` gains a `VirtualMachineHost` variant, which is an additive
+  change.
+- The `UiAbuse` category gains its first detector. `ui_abuse.host_report` reports `Medium` when the
+  host reports that another application drew over its window, or that a recorder captured one. It
+  reads no operating system, because two measurements showed that no operating system answers this
+  question to a library. `Handle::report_ui_abuse` and `UiObservation` are the surface, and both are
+  additive.
 - A `tracing` feature reports internal events, and it is off by default. The engine reports every
   one, and each names the detector, the category, the strength, and the action. Fidelity installs
   no subscriber, so a host that turns the feature on installs its own. A default build still
   resolves to no external crate.
+- A build on Rust 1.85 works again. `Cargo.toml` names 1.85 as the minimum version and
+  `docs/plan/06-delivery.md` makes that normative, and two `let` chains that need 1.88 had landed
+  after the 0.1.0 release. A host that took the named minimum could not build the workspace at all.
+  Both are written the older way now, and the platform harness builds the pinned version on every
+  run, so the claim and the check cannot separate again.
 - An x64 image that runs under the emulation of an ARM64 Windows reports unaccounted code on every
   clean run, because the translator writes code that no file backs. The test record states the
   figure, and an ARM64 image on the same machine reports clean.

@@ -47,6 +47,26 @@ object Harness {
     /** The fastest cost of one worker cycle in this process, in microseconds. */
     external fun cycleCostMicros(): Int
 
+    /**
+     * The names of the reads that one cycle makes, in the order it makes them.
+     *
+     * This is `Detectors::scan_cheap`, and all eight of it. Until 2026-08-20 it
+     * held six, and the two it dropped went unmeasured on every run.
+     */
+    val READS = arrayOf(
+        "code_identity",
+        "identity_match",
+        "tracer_state",
+        "code_regions",
+        "code_origin",
+        "dispatch_targets",
+        "system_build",
+        "machine_host",
+    )
+
+    /** The fastest cost of one read of the cycle, in microseconds, by index. */
+    external fun readCostMicros(which: Int): Int
+
     /** The first four bytes of one guarded constant, as this process reads it. */
     external fun guardedPrefix(): Int
 

@@ -1,6 +1,8 @@
 use fidelity_core::{Baseline, CodeRegions, Observation, Region};
 use fidelity_types::{BoundedText, Category, Detector, Evidence, Finding, Outcome, SignalStrength};
 
+use crate::Captured;
+
 /// The process maps executable code that it did not map at start.
 pub const RUNTIME_BASELINE: Detector =
     Detector::new(5, "integrity.runtime_baseline", Category::Integrity);
@@ -42,13 +44,20 @@ const NO_BASELINE: &str = "this build captured no baseline at start";
 /// any of its own work.
 pub(crate) fn runtime_baseline(
     environment: &(impl Baseline + ?Sized),
-    baseline: Option<&CodeRegions>,
+    baseline: Captured<&CodeRegions>,
     now_unix_ms: u64,
 ) -> Outcome {
-    let Some(baseline) = baseline else {
-        return Outcome::Unsupported {
-            reason: NO_BASELINE,
-        };
+    let baseline = match baseline {
+        Captured::Snapshot(baseline) => baseline,
+        Captured::Unsupported => {
+            return Outcome::Unsupported {
+                reason: NO_BASELINE,
+            };
+        }
+        // The start read failed, so this is a health finding and not a gap. A
+        // gap would state that the platform cannot answer, which a transient
+        // failure does not, and the detector would then stay silent forever.
+        Captured::Failed(detail) => return health(detail, now_unix_ms),
     };
 
     // A truncated snapshot drops regions, so a later region may look new when

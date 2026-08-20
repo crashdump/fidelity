@@ -911,6 +911,23 @@ if [ -n "$LINUX_HOW" ]; then
         linux 'cargo run --quiet --example machine -p fidelity' |
             grep 'machine_host: Medium'
     }
+    # The masked-firmware control, which proves that a failed read reports its
+    # health and never the hardware. A user and mount namespace holds a fresh
+    # tmpfs over the firmware directory, and a file named `id` sits in it, so a
+    # read of `/sys/class/dmi/id/sys_vendor` fails with `ENOTDIR` rather than
+    # with an absent file. That is the container case that the fix guards: a
+    # read error must report a `Low` health finding, and a walk that treated the
+    # error as an absent firmware reported `clean`. The example lowers the
+    # threshold, but the health finding sits on the machine-host detector, and
+    # `machine_host: Low` is the line that only the fix produces.
+    machine_masked_linux() {
+        linux 'cargo build --quiet --example machine -p fidelity &&
+            unshare -rm sh -c "
+                mount -t tmpfs none /sys/class/dmi &&
+                : > /sys/class/dmi/id &&
+                /var/tmp/target/debug/examples/machine"' |
+            grep 'machine_host: Low'
+    }
 
     run Linux identity-repackaged-linux identity_repackaged_linux
     if linux 'sudo -n true && command -v fsverity' > /dev/null 2>&1; then
@@ -935,13 +952,23 @@ if [ -n "$LINUX_HOW" ]; then
         skip Linux machine-guest-linux "this machine runs Linux, and the harness cannot state \
 whether it runs on the hardware or inside a monitor"
     fi
+    # The masked-firmware control runs on the hardware and in a guest alike,
+    # because a failed read reports the same health on either machine. It needs
+    # an unprivileged user namespace to hold the mount, so it skips where one
+    # is off.
+    if linux 'unshare -rm true' > /dev/null 2>&1; then
+        run Linux machine-masked-linux machine_masked_linux
+    else
+        skip Linux machine-masked-linux "no unprivileged user namespace, so no mount masks /sys"
+    fi
 else
     for control in linux-probe-tests cost-linux inject-clean inject-hostile \
         dispatch-hostile-linux dispatch-clean-linux \
         baseline-hostile-linux baseline-clean-linux \
         identity-clean-linux identity-repackaged-linux verity-linux \
         tracer-clean-linux tracer-at-start-linux tracer-attaches-linux \
-        plugin-load-linux legitimate-plugin-linux machine-guest-linux; do
+        plugin-load-linux legitimate-plugin-linux machine-guest-linux \
+        machine-masked-linux; do
         skip Linux "$control" "this machine runs no Linux, and no guest answers: \
 tests/platform/controls/vm.sh linux start"
     done
@@ -1102,6 +1129,19 @@ if [ -n "$WINDOWS_HOW" ]; then
         windows 'cargo build --quiet --example redirect -p fidelity &&
             target/debug/examples/redirect.exe'
     }
+    # The hidden-redirect control, which proves the terminator-gap fix.
+    # `hidden-iat-hook-windows.c` zeros one startup-only import, which is a fake
+    # terminator, and it redirects a later import in the same library, which
+    # sits behind that zero. A walk of the address table stopped at the zero and
+    # reported clean. The reader now counts the lookup table, so the redirect
+    # stays in the snapshot and this detector reports it.
+    dispatch_hidden_windows() {
+        windows 'cargo build --quiet --example redirect -p fidelity &&
+            sh tests/platform/controls/build-control.sh hidden-iat-hook-windows &&
+            sh tests/platform/controls/trace-after-start.sh \
+                target/debug/examples/redirect.exe \
+                target/platform/hidden-iat-hook-windows.exe'
+    }
 
     # The tracer set, in the same three shapes as macOS and Linux.
     tracer_clean_windows() {
@@ -1188,6 +1228,7 @@ takes the guest: tests/platform/controls/vm.sh windows start"
     run Windows inject-clean-windows inject_clean_windows
     run Windows inject-hostile-windows inject_hostile_windows
     run Windows dispatch-hostile-windows dispatch_hostile_windows
+    run Windows dispatch-hidden-windows dispatch_hidden_windows
     refute Windows dispatch-clean-windows 'no dispatch target moved after start' \
         dispatch_clean_windows
     run Windows baseline-hostile-windows baseline_hostile_windows
@@ -1219,7 +1260,7 @@ tests/platform/controls/vm.sh windows start"
         identity-clean-windows identity-other-signer-windows \
         identity-untrusted-windows \
         inject-clean-windows inject-hostile-windows \
-        dispatch-hostile-windows dispatch-clean-windows \
+        dispatch-hostile-windows dispatch-hidden-windows dispatch-clean-windows \
         baseline-hostile-windows baseline-clean-windows \
         tracer-clean-windows tracer-at-start-windows tracer-attaches-windows \
         cost-windows-x86 inject-emulated-x86 baseline-clean-x86-windows \
