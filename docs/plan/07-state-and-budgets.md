@@ -90,8 +90,8 @@ below. `crates/probe/measure.rs` holds the loop that all four examples share, so
 compare directly. Each read goes through `&dyn Environment`, which is the call the engine makes,
 and which is also the only form the optimizer cannot lift out of the loop. Every column used ARM64.
 The first four were measured on 2026-08-10, and the Windows column on 2026-08-18 in the QEMU guest
-that `tests/platform/vm/windows/` builds. The `dispatch_targets` reads were measured on 2026-08-19,
-Linux and Windows each in that guest:
+that `tests/platform/vm/windows/` builds. The `dispatch_targets` reads were measured on 2026-08-19
+for Linux and Windows, each in that guest, and on 2026-08-20 for macOS and iOS:
 
 | Read | macOS 26 | iOS 26, simulator | Debian, glibc | Android 37 | Windows 11 |
 |---|---|---|---|---|---|
@@ -100,13 +100,14 @@ Linux and Windows each in that guest:
 | `tracer_state` | 18 us | 20 us | 3.6 us | 4.8 us | 1.2 us |
 | `code_regions` | 58 us | 70 us | 9.7 us | 35 us | 411 us |
 | `code_origin` | none | none | 9.3 us | 35 us | 410 us |
-| `dispatch_targets` | none | none | 358 ns | none | 1.0 us |
+| `dispatch_targets` | 511 ns | 511 ns | 358 ns | none | 1.0 us |
 | one worker cycle | 416 us | 90 us | 23 us | 178 us | 1.2 ms |
 
-`dispatch_targets` reads the main image alone. Linux stops at the first loaded object, and Windows
-reads the import table straight from the module base, so both cost far less than a read that walks
-the whole mapping table. Each one adds about a microsecond or less to its cycle, which is below the
-spread of that cycle, so the figures above hold.
+`dispatch_targets` reads the main image alone. Linux stops at the first loaded object, Windows
+reads the import table straight from the module base, and Apple walks the load commands of one
+image, so each costs far less than a read that walks the whole mapping table. Each one adds about a
+microsecond or less to its cycle, which is below the spread of that cycle, so the figures above
+hold.
 
 Five facts decide how to read that table.
 

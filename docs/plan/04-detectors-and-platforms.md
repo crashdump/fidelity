@@ -254,6 +254,7 @@ else than at start.
 |---|---|---|
 | Linux | the jump-slot relocations of the main image, through `dl_iterate_phdr` | `hook.c`, which points `memcpy` at `memmove` |
 | Windows | the import address table of the main module, through `GetModuleHandle` and the PE headers | `iat-hook-windows.c`, which redirects a startup import from outside |
+| macOS, iOS | the non-lazy symbol pointers of the main image, through `_dyld_get_image_header` and the Mach-O sections | `hook-macos.c`, which points `memcpy` at a forwarder of its own |
 
 The detector reads the main image alone, and the reason is the memory budget. A shared library can
 hold thousands of dispatch targets, and the snapshot must stay bounded. Measured on Linux and
@@ -270,15 +271,28 @@ states the gap rather than a false clean. Windows resolves the static import tab
 the entry point, so it is always fully bound, and a delay-load import is a separate table that the
 probe does not read.
 
+Apple applies that same rule to its own two binding models, and the load commands of the image name
+which one it uses. `LC_DYLD_CHAINED_FIXUPS` binds every import before the image runs and carries no
+lazy table, so the probe answers. `LC_DYLD_INFO_ONLY` keeps the lazy pointers in `__la_symbol_ptr`,
+so the probe reports `Unsupported`. A linker writes chained fixups from a deployment target of
+macOS 13 or iOS 15, and the [v1 floor](#supported-targets) is macOS 15 and iOS 26, so an image that
+meets the floor always carries them. Measured on macOS 26.5.2 and ARM64 on 2026-08-20: a chained
+Rust image held 73 to 96 pointers in `__got` and no lazy table, and a classic image of the same
+source held 2 non-lazy pointers and 72 lazy ones.
+
 A redirected target is `Medium`, and `High` is closed rather than pending. The evidence is direct,
 because a fully bound table does not rewrite its own entries. It stays below `High` for the reason
 the signal model states: an attacker inside the process rewrites the table and the comparison logic
 together, so the signal has a meaningful user-mode bypass. Measured on 2026-08-19, on ARM64: the
 `memcpy` slot of a Linux main image, redirected to `memmove`, left the runtime baseline clean over
-40 seconds and this detector caught it after 5.6 seconds. On Windows, an external `WriteProcessMemory`
-redirected a startup import of the running subject to another loaded function, and this detector
-caught it after 7.0 seconds while the baseline stayed clean, because the import table sits in a data
-section. So this detector catches a hook that maps no new executable region.
+40 seconds and this detector caught it after 5.6 seconds. On Windows, an external
+`WriteProcessMemory` redirected a startup import of the running subject to another loaded function,
+and this detector caught it after 7.0 seconds while the baseline stayed clean, because the import
+table sits in a data section. On macOS and on iOS, an agent that the loader mapped before the
+process ran redirected the `memcpy` pointer of the main image to a forwarder of its own, and this
+detector caught it after
+5.8 and 5.1 seconds while the baseline stayed clean over 40 seconds. So this detector catches a hook
+that maps no new executable region.
 
 Three clean controls decided the rule, and each one ran on Linux and ARM64 on 2026-08-19. A plain
 process, a Rust process, and a Python process with SQLite and OpenSSL, which holds 6749 targets,

@@ -220,6 +220,16 @@ impl Worker {
             let outcomes = self.detectors.scan_all(&*self.environment, now_unix_ms());
             self.apply(outcomes);
             (self.hooks.full_scan_complete)();
+            // This wait carries the resume promise, so it must stay a relative
+            // sleep. A mobile system suspends an application and resumes it
+            // later, and `docs/plan/03-runtime-and-api.md` makes a full scan
+            // the first work item after that resume. The machine leaves the
+            // clock running while it holds the process, so a wait that started
+            // before the suspension expires during it, and the scan above runs
+            // as soon as the process runs again. A wait that re-armed itself
+            // on wake, or that read a clock which stops with the process, would
+            // give an attacker a whole cycle after every resume and no test
+            // outside `tests/platform/` would report it.
             std::thread::sleep(self.next_wait());
         }
     }

@@ -369,6 +369,12 @@ fi
 # A let-chain therefore made the claim false for months, and the workspace did
 # not build on the version that it named. The version comes from the manifest
 # here, so the check and the claim cannot drift apart again.
+#
+# It caught a second one on 2026-08-19. `#[derive(Default)]` on a struct that
+# holds a raw pointer builds on a current compiler and fails on 1.85, because
+# `Default` for a raw pointer arrived in 1.88. It broke the two Linux targets
+# alone, so the host arm above passed and only the cross loop below reported it.
+# That is the reason this control checks every target and not the host.
 MSRV=$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' "$ROOT/Cargo.toml" | head -1)
 if [ -n "$MSRV" ] && rustup run "$MSRV" rustc --version > /dev/null 2>&1; then
     msrv() {
@@ -419,6 +425,30 @@ if [ "$(uname -s)" = Darwin ]; then
         cargo build --quiet --example attach -p fidelity || return 1
         "$ROOT/tests/platform/controls/trace-after-start.sh" \
             "$ROOT/target/debug/examples/attach" lldb -p
+    }
+
+    # The dispatch pair. The agent arrives with the image, so the loader maps
+    # its code before `start()` reads the baseline, and only the table moves
+    # afterwards. That is what separates this detector from the baseline.
+    dispatch_hostile_macos() {
+        clang -dynamiclib -o "$OUT/hook-macos.dylib" \
+            "$ROOT/tests/platform/controls/hook-macos.c" || return 1
+        cargo build --quiet --example redirect -p fidelity || return 1
+        DYLD_INSERT_LIBRARIES="$OUT/hook-macos.dylib" \
+            "$ROOT/target/debug/examples/redirect" | grep 'DispatchRedirected'
+    }
+    dispatch_clean_macos() {
+        cargo build --quiet --example redirect -p fidelity || return 1
+        "$ROOT/target/debug/examples/redirect"
+    }
+
+    # The resume promise. The plan makes a full scan the worker's first work
+    # item after the machine continues a frozen process, and the mechanism is
+    # the same on every system, so the development machine runs it too.
+    resume_after_freeze() {
+        cargo build --quiet --example resume -p fidelity || return 1
+        "$ROOT/tests/platform/controls/resume-after-freeze.sh" \
+            "$ROOT/target/debug/examples/resume"
     }
 
     # The region counts behind the runtime-baseline strength. `plugin-load.c`
@@ -559,6 +589,10 @@ if [ "$(uname -s)" = Darwin ]; then
     run macOS tracer-clean tracer_clean
     run macOS tracer-at-start tracer_at_start
     run macOS tracer-attaches tracer_attaches
+    run macOS resume-after-freeze resume_after_freeze
+    run macOS dispatch-hostile-macos dispatch_hostile_macos
+    refute macOS dispatch-clean-macos 'no dispatch target moved after start' \
+        dispatch_clean_macos
     run macOS plugin-load plugin_load
     run macOS legitimate-plugin legitimate_plugin
     refute macOS legitimate-cached 'no code arrived after start' legitimate_cached
@@ -567,7 +601,8 @@ else
         identity-adhoc-macos identity-clean-macos \
         identity-repackaged-macos identity-pinned-other-macos \
         baseline-hostile baseline-clean \
-        tracer-clean tracer-at-start tracer-attaches \
+        tracer-clean tracer-at-start tracer-attaches resume-after-freeze \
+        dispatch-hostile-macos dispatch-clean-macos \
         plugin-load legitimate-plugin legitimate-cached; do
         skip macOS "$control" "this machine does not run macOS"
     done
@@ -630,6 +665,38 @@ if [ -n "$SIMULATOR" ]; then
         "$ROOT/tests/platform/controls/trace-after-start.sh" "$OUT/ios-subject" lldb -p
     }
 
+    # The resume promise, on the first of the two systems that it names. The
+    # simulator runs the subject as an ordinary process of this machine, so the
+    # freeze reaches it from here. A device suspends an application itself, and
+    # tests/platform/README.md holds that gap.
+    resume_after_freeze_ios() {
+        binary=$(sim_build resume) || return 1
+        printf '#!/bin/sh\nexec xcrun simctl spawn %s %s\n' \
+            "$SIMULATOR" "$binary" > "$OUT/ios-resume" || return 1
+        chmod +x "$OUT/ios-resume" || return 1
+        "$ROOT/tests/platform/controls/resume-after-freeze.sh" "$OUT/ios-resume"
+    }
+
+    # The dispatch pair, in the shape that the macOS section states. The
+    # simulator passes a variable to the child under the `SIMCTL_CHILD_`
+    # prefix alone, which the baseline pair below records.
+    dispatch_ios_dylib() {
+        sdk=$(xcrun --sdk iphonesimulator --show-sdk-path) || return 1
+        clang -arch arm64 -isysroot "$sdk" -mios-simulator-version-min=26.0 \
+            -dynamiclib -o "$OUT/hook-ios.dylib" \
+            "$ROOT/tests/platform/controls/hook-macos.c"
+    }
+    dispatch_hostile_ios() {
+        binary=$(sim_build redirect) || return 1
+        dispatch_ios_dylib || return 1
+        env SIMCTL_CHILD_DYLD_INSERT_LIBRARIES="$OUT/hook-ios.dylib" \
+            xcrun simctl spawn "$SIMULATOR" "$binary" | grep 'DispatchRedirected'
+    }
+    dispatch_clean_ios() {
+        binary=$(sim_build redirect) || return 1
+        xcrun simctl spawn "$SIMULATOR" "$binary"
+    }
+
     # The runtime-baseline pair. `simctl spawn` gives a variable to the child
     # under the `SIMCTL_CHILD_` prefix only. A plain `DYLD_INSERT_LIBRARIES`
     # reaches nothing, and the run then reports a clean result that measured no
@@ -654,12 +721,17 @@ if [ -n "$SIMULATOR" ]; then
     run iOS tracer-clean-ios tracer_clean_ios
     run iOS tracer-at-start-ios tracer_at_start_ios
     run iOS tracer-attaches-ios tracer_attaches_ios
+    run iOS resume-after-freeze-ios resume_after_freeze_ios
+    run iOS dispatch-hostile-ios dispatch_hostile_ios
+    refute iOS dispatch-clean-ios 'no dispatch target moved after start' \
+        dispatch_clean_ios
     run iOS baseline-hostile-ios baseline_hostile_ios
     refute iOS baseline-clean-ios 'no code arrived after start' baseline_clean_ios
 else
     for control in ios-probe-tests cost-ios \
         identity-clean-ios identity-pinned-team-ios \
         tracer-clean-ios tracer-at-start-ios tracer-attaches-ios \
+        resume-after-freeze-ios dispatch-hostile-ios dispatch-clean-ios \
         baseline-hostile-ios baseline-clean-ios; do
         skip iOS "$control" \
             "no simulator is booted: xcrun simctl boot \"iPhone 16 Pro\""
@@ -1170,7 +1242,8 @@ NDK_CC=$(ls "${ANDROID_HOME:-}"/ndk/*/toolchains/llvm/prebuilt/*/bin/aarch64-lin
 # record that never mentions it reads as complete coverage.
 ANDROID_CONTROLS="android-probe-tests cost-android android-instrumented
     android-repackage tracer-clean-android tracer-at-start-android
-    tracer-attaches-android baseline-clean-android baseline-hostile-android
+    tracer-attaches-android resume-after-freeze-android
+    baseline-clean-android baseline-hostile-android
     inject-clean-android inject-hostile-android machine-emulator-android"
 
 if [ -z "$(adb devices 2>/dev/null | awk 'NR > 1 && $2 == "device" { print $1 }')" ]; then
@@ -1243,6 +1316,19 @@ else
             adb shell 'sh /data/local/tmp/trace-after-start.sh /data/local/tmp/subject /data/local/tmp/attach-tool'
     }
 
+    # The resume promise, on the second of the two systems that it names. The
+    # script runs on the device, because the shell there owns the subject and
+    # can freeze it. Android freezes a cached process with the cgroup freezer
+    # rather than with a signal, and tests/platform/README.md holds the run that
+    # measured the real mechanism and found the same answer.
+    resume_after_freeze_android() {
+        android_example resume resume &&
+            android_push "$ROOT/tests/platform/controls/resume-after-freeze.sh" \
+                resume-after-freeze.sh &&
+            # One line, for the reason that the tracer control above states.
+            adb shell 'sh /data/local/tmp/resume-after-freeze.sh /data/local/tmp/resume'
+    }
+
     android_late() {
         android_example late late &&
             adb shell "cd /data/local/tmp && LD_PRELOAD=$1 ./late"
@@ -1277,6 +1363,7 @@ else
     run Android tracer-clean-android tracer_clean_android
     run Android tracer-at-start-android tracer_at_start_android
     run Android tracer-attaches-android tracer_attaches_android
+    run Android resume-after-freeze-android resume_after_freeze_android
     # The clean arm exits with a failure code by design, because the example
     # reports success when the worker finds the change. `refute` reads the
     # answer rather than the status, and Linux and iOS take the same route.

@@ -5,6 +5,7 @@
 //! which states the gap without a method body to read.
 
 mod baseline;
+mod dispatch;
 mod emulation;
 mod identity;
 mod lifecycle;
@@ -48,7 +49,7 @@ impl Environment for MacEnvironment {
 // shape. Until it does, an empty `impl` here states the gap, and the trait
 // default reports `Unsupported`.
 const _: fn() = || {
-    fn implements<T: Baseline + Emulation + Identity + Lifecycle + Tracer>() {}
+    fn implements<T: Baseline + Dispatch + Emulation + Identity + Lifecycle + Tracer>() {}
     implements::<MacEnvironment>();
 };
 
@@ -65,14 +66,6 @@ impl Injection for MacEnvironment {}
 // grants that user administrator rights by design. There is no such boundary
 // to lose, so the question does not apply rather than waiting for code.
 impl Device for MacEnvironment {}
-
-// macOS can answer `dispatch`, and no code exists yet. A hook that rewrites a
-// lazy or non-lazy symbol pointer of the main image redirects a call, and the
-// pointer table is bounded and readable, so the question applies. The
-// gigabytes that stop `injection` do not apply here, because this reads one
-// table rather than counting memory. It waits for a measurement of a clean
-// Apple table. See `docs/plan/04-detectors-and-platforms.md`.
-impl Dispatch for MacEnvironment {}
 
 #[cfg(test)]
 mod tests {

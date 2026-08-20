@@ -9,3 +9,20 @@
 [env]
 FIDELITY_BUILD_SEED = "fidelity-workspace-development-seed"
 FIDELITY_CODE_IDENTITY = "none"
+
+# The Apple deployment targets, which match the v1 floor that
+# `docs/plan/04-detectors-and-platforms.md` states. Rust defaults to macOS 11
+# and iOS 14, which are both below that floor, so a binary of this workspace
+# described a system that the plan does not support.
+#
+# The value decides how the linker binds imported symbols, so it decides
+# whether `dispatch` answers at all. A linker writes chained fixups from
+# macOS 13 and iOS 15, and classic lazy binding below that, and only a chained
+# image binds every import before it runs. Both floors sit above both
+# thresholds, so a host that meets the floor gets a table that this library can
+# read. Measured on 2026-08-20, and `tests/platform/README.md` holds it.
+#
+# This reaches the builds of this workspace alone. A host sets its own target,
+# and the probe reads what the running image carries.
+MACOSX_DEPLOYMENT_TARGET = "15.0"
+IPHONEOS_DEPLOYMENT_TARGET = "26.0"

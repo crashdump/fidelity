@@ -120,9 +120,10 @@ Two rules keep that true:
   compiles on every target, which is how `Platform::target()` stays portable.
 
 A platform need that looks like it belongs to the engine is a capability that nobody declared yet.
-The worker is the example: Android attaches its thread to the JVM, Apple gives the thread a quality
-of service, and a mobile system reports that it resumed the application. All three are platform
-code, so the `lifecycle` capability carries them and the engine stays portable.
+The worker is the example: Android attaches its thread to the JVM, and Apple gives the thread a
+quality of service. Both are platform code, so the `lifecycle` capability carries them and the
+engine stays portable. A resume needs no third one, and a measurement says so rather than a reading.
+[Runtime and API](03-runtime-and-api.md#lifecycle) holds the reason.
 
 ## Capability coverage
 
@@ -139,7 +140,7 @@ The marker states what the code does today, and a test enforces every cell. See
 | `baseline` | `Integrity` | yes | yes | yes | yes | yes |
 | `tracer` | `Debugging` | yes | yes | yes | yes | yes |
 | `injection` | `Instrumentation` | no | no | yes | yes | yes |
-| `dispatch` | `Instrumentation` | plan | plan | yes | yes | plan |
+| `dispatch` | `Instrumentation` | yes | yes | yes | yes | plan |
 | `device` | `DeviceCompromise` | no | plan | no | no | yes |
 | `emulation` | `Virtualization` | yes | plan | yes | yes | yes |
 | `lifecycle` | none | yes | yes | no | no | yes |

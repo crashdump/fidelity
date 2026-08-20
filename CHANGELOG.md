@@ -15,8 +15,11 @@ in `tests/platform/README.md`, which states what each platform proved and what i
   catches a hook that maps no new executable region, such as one that redirects a call to code that
   already exists, which the runtime baseline cannot see. Linux answers it through the jump-slot
   relocations of the main image, and Windows through the import address table of the main module.
-  The other three platforms report `Unsupported`. `Evidence` gains a `DispatchRedirected` variant,
-  which is an additive change.
+  Android reports `Unsupported`. macOS and iOS answer it through the non-lazy symbol pointers of the
+  main image, and only when that image carries `LC_DYLD_CHAINED_FIXUPS`, which a deployment target
+  of macOS 13 or iOS 15 produces and the v1 floor exceeds. An image below that threshold binds an
+  import on its first call, so the probe reports `Unsupported` rather than a false finding.
+  `Evidence` gains a `DispatchRedirected` variant, which is an additive change.
 - The `Virtualization` category gains its first detector. `virtualization.machine_host` reports
   `Medium` when the kernel states that a virtual machine monitor runs the system. macOS answers it,
   through `kern.hv_vmm_present`, and the other four platforms report `Unsupported`. `Evidence` gains

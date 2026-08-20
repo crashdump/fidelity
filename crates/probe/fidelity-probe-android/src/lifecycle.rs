@@ -5,10 +5,19 @@
 //! virtual machine. The attachment is a daemon attachment, so it never stops
 //! the application from ending.
 //!
-//! One part of this capability is still absent. A mobile system suspends an
-//! application and resumes it later, and `docs/plan/03-runtime-and-api.md`
-//! makes a full scan the worker's first work item after a resume. That needs an
-//! application lifecycle callback, which the Java side owns.
+//! One part of this capability needs no code here, and a measurement says so
+//! rather than a reading. A mobile system suspends an application and resumes
+//! it later, and `docs/plan/03-runtime-and-api.md` makes a full scan the
+//! worker's first work item after a resume. The worker waits between scans with
+//! a relative sleep, and Android leaves the clock running while it holds the
+//! process, so that wait expires during the suspension and the next scan runs
+//! at once. No Java callback reaches this file, and none has to.
+//!
+//! Measured on Android 17, API 37, in the emulator on 2026-08-19, with the
+//! cgroup freezer that Android holds a cached process with: a freeze of 20
+//! seconds moved no scan, and the first scan after the resume landed 0 ms after
+//! it. The control is `tests/platform/controls/resume-after-freeze.sh`, and it
+//! holds the process with a signal, which measured the same answer.
 
 use fidelity_core::{Lifecycle, WorkerSetup};
 use fidelity_types::BoundedText;

@@ -7,6 +7,7 @@
 //! One file per framework. macOS and iOS share these bindings, which is why
 //! the two systems share one crate: a split would duplicate every one of them.
 
+pub(crate) mod dispatch;
 pub(crate) mod process;
 pub(crate) mod qos;
 pub(crate) mod regions;

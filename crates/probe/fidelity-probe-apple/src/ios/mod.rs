@@ -14,6 +14,7 @@
 //! from the App ID prefix, out of the entitlements that the image carries.
 
 mod baseline;
+mod dispatch;
 mod identity;
 mod lifecycle;
 mod tracer;
@@ -56,7 +57,7 @@ impl Environment for IosEnvironment {
 // follows that shape. Until it does, an empty `impl` here states the gap, and
 // the trait default reports `Unsupported`.
 const _: fn() = || {
-    fn implements<T: Baseline + Identity + Lifecycle + Tracer>() {}
+    fn implements<T: Baseline + Dispatch + Identity + Lifecycle + Tracer>() {}
     implements::<IosEnvironment>();
 };
 
@@ -87,14 +88,6 @@ impl Device for IosEnvironment {}
 // the two would rest on what this project believes a device reports. It waits
 // for a device, because no measurement means no detector.
 impl Emulation for IosEnvironment {}
-
-// iOS can answer `dispatch`, and no code exists yet. A hook that rewrites a
-// lazy or non-lazy symbol pointer of the main image redirects a call, and the
-// pointer table is bounded and readable, so the question applies. The
-// gigabytes that stop `injection` do not apply here, because this reads one
-// table rather than counting memory. It waits for a measurement of a clean
-// Apple table. See `docs/plan/04-detectors-and-platforms.md`.
-impl Dispatch for IosEnvironment {}
 
 #[cfg(test)]
 mod tests {

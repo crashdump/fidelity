@@ -9,5 +9,6 @@
 //! `docs/plan/06-delivery.md`.
 
 pub(crate) mod baseline;
+pub(crate) mod dispatch;
 pub(crate) mod lifecycle;
 pub(crate) mod tracer;

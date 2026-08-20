@@ -59,6 +59,9 @@ fn main() {
     measure::report("code_regions", || {
         black_box(black_box(environment).code_regions());
     });
+    measure::report("dispatch_targets", || {
+        black_box(black_box(environment).dispatch_targets());
+    });
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "ios")))]

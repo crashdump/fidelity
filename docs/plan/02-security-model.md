@@ -71,9 +71,11 @@ per runtime, so isolated test runtimes stay independent.
 before each protected operation. The method is a cheap read of already-latched state. It is not a
 fresh scan, an authorization system, or an atomic boundary around the operation. A check-then-use
 race therefore remains possible. The resume scan opens a second window: Fidelity latches a change
-that starts during suspension only when that scan completes. Startup opens a third window: the
-expensive detectors run after `start()` returns, so an early call sees the synchronous set only.
-`deny_until_first_full_scan()` closes the third window at the cost of availability.
+that starts during suspension only when that scan completes. A measurement bounds that window: the
+first scan after a resume landed 0 to 1 ms after it, on all four arms that
+[the record](../../tests/platform/README.md#the-resume-promise) holds. Startup opens a third
+window: the expensive detectors run after `start()` returns, so an early call sees the synchronous
+set only. `deny_until_first_full_scan()` closes the third window at the cost of availability.
 
 The permanent latch has no authenticated exception, because Fidelity holds no trust anchor. A
 secret that unlocks the latch ships inside the binary that the attacker already controls. The

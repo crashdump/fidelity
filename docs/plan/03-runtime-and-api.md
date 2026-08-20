@@ -35,6 +35,13 @@ lifecycle-triggered work with jitter. Desktop workers run continuously. Mobile w
 the OS suspends the application. On resume, a full scan is the worker's first work item. Fidelity
 needs no background service and no special entitlement.
 
+The worker must wait between scans with a relative sleep, and that is what keeps the sentence above.
+The machine leaves the clock running while it holds a suspended process, so a wait that started
+before the suspension expires during it, and the scan runs as soon as the process runs again. A wait
+that re-armed itself on wake would give an attacker a whole cycle after every resume. No probe reads
+a lifecycle notification for this, and none has to. `tests/platform/README.md` holds the four arms
+that measured it.
+
 ## Configuration
 
 Each category has one setter that takes its action and its `SignalStrength` threshold together, and
