@@ -14,12 +14,14 @@ check_list() {
     manifest=$2
     fixture=$3
     actual="$package_temp/$package.txt"
+    expected="$actual.expected"
     raw="$actual.raw"
 
     cargo package --manifest-path "$manifest" --list --allow-dirty >"$raw"
-    # Cargo can write CRLF on Windows. The package list has one format here.
+    # The checkout and Cargo can use different line ends on Windows.
     tr -d '\r' <"$raw" >"$actual"
-    diff -u "$fixture" "$actual"
+    tr -d '\r' <"$fixture" >"$expected"
+    diff -u "$expected" "$actual"
 }
 
 check_list fidelity crates/fidelity/Cargo.toml tests/package/fidelity.txt

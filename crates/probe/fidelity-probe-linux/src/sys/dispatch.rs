@@ -144,20 +144,20 @@ fn headers(image: &MainImage) -> Option<&[Phdr]> {
     Some(unsafe { core::slice::from_raw_parts(image.phdr, count) })
 }
 
-fn segment_bytes<'a>(base: u64, headers: &'a [Phdr], kind: u32, limit: usize) -> Option<&'a [u8]> {
+fn segment_bytes(base: u64, headers: &[Phdr], kind: u32, limit: usize) -> Option<&[u8]> {
     let header = headers.iter().find(|header| header.kind == kind)?;
     let address = base.checked_add(header.vaddr)?;
     let bytes = usize::try_from(header.memsz).ok()?;
     mapped_bytes(address, bytes, base, headers, limit)
 }
 
-fn mapped_bytes<'a>(
+fn mapped_bytes(
     address: u64,
     bytes: usize,
     base: u64,
-    headers: &'a [Phdr],
+    headers: &[Phdr],
     limit: usize,
-) -> Option<&'a [u8]> {
+) -> Option<&[u8]> {
     if bytes > limit {
         return None;
     }
@@ -181,7 +181,7 @@ fn mapped_bytes<'a>(
     slice(address, bytes, headers)
 }
 
-fn slice<'a>(address: u64, bytes: usize, _headers: &'a [Phdr]) -> Option<&'a [u8]> {
+fn slice(address: u64, bytes: usize, _headers: &[Phdr]) -> Option<&[u8]> {
     let address = usize::try_from(address).ok()?;
     // SAFETY: the caller proves that this range belongs to a mapped segment.
     Some(unsafe { core::slice::from_raw_parts(address as *const u8, bytes) })

@@ -12,7 +12,7 @@
 //!
 //! # No signer, on purpose
 //!
-//! This capability reports no [`Signer`], so `guarded!()` still refuses a
+//! This capability reports no [`fidelity_core::Signer`], so `guarded!()` still refuses a
 //! Linux binding and the build fails there as it did before. That is a
 //! decision rather than an omission. A content digest changes on every
 //! rebuild, so a key derived from it would decrypt every guarded constant to

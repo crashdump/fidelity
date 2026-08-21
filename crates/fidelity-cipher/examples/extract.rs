@@ -38,12 +38,11 @@
 //!
 //! A run passes when it recovers one constant, and it records how many it
 //! recovered. Whether a ciphertext sits in the constant pool depends on the
-//! target. Measured on 2026-08-13, from one source with one seed: ARM64 put
-//! both ciphertexts in the pool, and `x86_64` left one out and built that value
-//! from immediates in the instruction stream instead. A byte scan cannot reach
-//! an immediate, and an attacker who disassembles one call site reads it
-//! directly, so a constant that this control does not recover is not a
-//! protected one.
+//! target. Measured on macOS on 2026-08-13, from one source with one seed: ARM64
+//! put both ciphertexts in the pool, and `x86_64` put one in instruction
+//! immediates. Measured on Windows on 2026-08-21, `x86_64` put both there. A
+//! byte scan cannot reach an immediate. An attacker who disassembles one call
+//! site reads it directly. Thus, an unrecovered constant has no protection.
 //!
 //! Neither artifact holds a literal in the clear. The `guarded-no-plaintext`
 //! control states that separately, because it holds on every target and this

@@ -36,7 +36,6 @@
 static const char *STARTUP_IMPORTS[] = {
     "GetCommandLineW", "GetCommandLineA", "GetStartupInfoW",
     "GetModuleHandleW", "SetUnhandledExceptionFilter", "GetEnvironmentStringsW",
-    "GetModuleFileNameW", "GetSystemTimeAsFileTime", "QueryPerformanceCounter",
 };
 #define STARTUP_COUNT (int)(sizeof STARTUP_IMPORTS / sizeof STARTUP_IMPORTS[0])
 
