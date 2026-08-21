@@ -1,7 +1,7 @@
 //! The lifecycle capability on macOS.
 //!
 //! iOS prepares its worker the same way, so the body lives in
-//! [`common::lifecycle`](crate::common::lifecycle) and this file binds it to
+//! [`common::lifecycle`] and this file binds it to
 //! the macOS environment.
 
 use fidelity_core::{Lifecycle, WorkerSetup};

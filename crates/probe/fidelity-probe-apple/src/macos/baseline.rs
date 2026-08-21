@@ -1,7 +1,7 @@
 //! The runtime baseline capability on macOS.
 //!
 //! iOS walks the same Mach interface, so the body lives in
-//! [`common::baseline`](crate::common::baseline) and this file binds it to the
+//! [`common::baseline`] and this file binds it to the
 //! macOS environment.
 
 use fidelity_core::{Baseline, CodeRegions, Observation};

@@ -1,0 +1,35 @@
+[package]
+name = "tauri-plugin-fidelity"
+version = "0.3.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Connect the Fidelity runtime to a Tauri 2 application."
+license-file = "../../LICENSE"
+repository = "https://github.com/crashdump/fidelity"
+keywords = ["security", "tauri", "integrity", "runtime"]
+categories = ["api-bindings", "security"]
+readme = "README.md"
+
+[workspace]
+resolver = "3"
+
+[dependencies]
+fidelity = { path = "../../crates/fidelity", version = "0.3.0" }
+tauri = { version = "=2.11.5", default-features = false }
+
+[dev-dependencies]
+tauri = { version = "=2.11.5", default-features = false, features = ["test"] }
+
+[lints.rust]
+missing_docs = "deny"
+missing_debug_implementations = "deny"
+unreachable_pub = "deny"
+rust_2018_idioms = { level = "deny", priority = -1 }
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+todo = "deny"
+unimplemented = "deny"

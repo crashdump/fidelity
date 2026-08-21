@@ -35,6 +35,12 @@ const EXECUTE_WRITE: u32 = 0xC0;
 /// neither field until it sees this state.
 const MEM_COMMIT: u32 = 0x1000;
 
+/// A page with this protection permits no access.
+const PAGE_NOACCESS: u32 = 0x01;
+
+/// A guard page raises an exception on its first access.
+const PAGE_GUARD: u32 = 0x100;
+
 /// The pages are a view of an image section, so a module accounts for them.
 const MEM_IMAGE: u32 = 0x100_0000;
 
@@ -100,6 +106,66 @@ unsafe extern "system" {
         buffer: *mut MemoryBasicInformation,
         length: usize,
     ) -> usize;
+}
+
+/// Copies the readable pages of one allocation into a parser buffer.
+///
+/// A Windows allocation can hold reserved or inaccessible gaps. Zeroes
+/// represent those gaps, so a safe parser rejects an offset into one.
+pub(crate) fn copy_readable_allocation(base: usize, bytes: usize, limit: usize) -> Option<Vec<u8>> {
+    if base == 0 || bytes == 0 || bytes > limit {
+        return None;
+    }
+    let end = base.checked_add(bytes)?;
+    let mut copied = vec![0; bytes];
+    let mut address = base;
+
+    while address < end {
+        let mut info = MemoryBasicInformation::default();
+        // SAFETY: the output points at the exact structure size.
+        let written = unsafe {
+            VirtualQuery(
+                address as *const c_void,
+                &raw mut info,
+                size_of::<MemoryBasicInformation>(),
+            )
+        };
+        if written != size_of::<MemoryBasicInformation>()
+            || info.allocation_base as usize != base
+            || info.region_size == 0
+        {
+            return None;
+        }
+
+        let region_start = info.base_address as usize;
+        let region_end = region_start.checked_add(info.region_size)?;
+        if region_start > address || region_end <= address {
+            return None;
+        }
+        let copy_end = region_end.min(end);
+        if readable(info.state, info.protect) {
+            let output = address.checked_sub(base)?;
+            let length = copy_end.checked_sub(address)?;
+            // SAFETY: `VirtualQuery` reports this committed range as readable.
+            // The output range has the same length inside `copied`.
+            unsafe {
+                core::ptr::copy_nonoverlapping(
+                    address as *const u8,
+                    copied.as_mut_ptr().add(output),
+                    length,
+                );
+            }
+        }
+        address = copy_end;
+    }
+    Some(copied)
+}
+
+const fn readable(state: u32, protection: u32) -> bool {
+    state == MEM_COMMIT
+        && protection & PAGE_GUARD == 0
+        && protection & 0xff != PAGE_NOACCESS
+        && protection != 0
 }
 
 /// One executable region, as the operating system reports it.
@@ -199,7 +265,15 @@ pub(crate) fn executable() -> Result<Vec<Region>, &'static str> {
 
 #[cfg(test)]
 mod tests {
-    use super::executable;
+    use super::{MEM_COMMIT, PAGE_GUARD, PAGE_NOACCESS, executable, readable};
+
+    #[test]
+    fn the_page_rule_rejects_absent_and_guarded_memory() {
+        assert!(!readable(0, 0x02));
+        assert!(!readable(MEM_COMMIT, PAGE_NOACCESS));
+        assert!(!readable(MEM_COMMIT, 0x02 | PAGE_GUARD));
+        assert!(readable(MEM_COMMIT, 0x02));
+    }
 
     #[test]
     fn the_walk_finds_the_executable_code_of_this_process() {

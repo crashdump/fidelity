@@ -8,14 +8,13 @@ cannot change afterwards. `start(self)`:
 1. claims the single process-wide runtime slot;
 2. validates the configuration;
 3. constructs the applicable platform backend;
-4. completes an initial scan; and
-5. starts the library-owned worker before it returns `Handle`.
+4. completes an initial scan;
+5. builds the `Handle` and starts the library-owned worker; and
+6. waits for every initial action before it returns `Handle`.
 
-The initial scan records findings and latches state. It does not apply an action. `start()` returns
-the handle first. The worker then applies every qualifying action from the initial scan as its first
-work item. A `Crash` from the initial scan therefore stops the process immediately after `start()`
-returns. A `Deny` latch is active as soon as `start()` returns, so the first `ensure_allowed()` call
-can fail.
+The initial scan records findings and latches state. The worker then applies every qualifying
+action as its first work item. A `Deny` latch is active before success. A `Callback` completes
+before success. A `Crash` stops the process, so `start()` does not return.
 
 The initial scan runs only the detectors whose probes are bounded and cheap. A detector that costs
 too much on the caller's thread runs on the worker's first cycle instead, and the latch at `start()`
@@ -52,6 +51,15 @@ the defaults are `Action::Report` and `SignalStrength::High`. The setters are `i
 covers every target, so the configuration cross-compiles. See the
 [image identity tiers](04-detectors-and-platforms.md#image-identity-tiers).
 
+`require_complete_coverage(Category)` makes complete platform coverage mandatory for one category.
+Every current platform detector in that category must return `Clean` or a non-health `Finding`
+during the initial scan. `Unsupported`, `NotRun`, detector health, and an absent platform detector
+return `StartError::RequiredCoverageUnavailable`. The default requires no category. A later
+detector in a required category becomes required in the same release.
+
+`UiAbuse` has no platform detector, so it always fails this requirement. The host supplies that
+category through `report_ui_abuse()` instead.
+
 Android needs the virtual machine for its Java APIs, and the probe finds it, so the host supplies
 nothing and the configuration gains no Android-only field. See
 [delivery](06-delivery.md#engineering-constraints).
@@ -64,6 +72,10 @@ system answers. See [the user interface](04-detectors-and-platforms.md#the-user-
 the startup window in the [security model](02-security-model.md#deny-is-cooperative), and it is off
 by default, because an early call then denies the host's own startup path.
 
+`Handle::first_full_scan_complete()` reports whether the worker completed its first full cycle.
+`Handle::wait_for_first_full_scan(Duration)` waits for that state for a bounded time. The call
+only observes the worker state, and it returns `false` when the time expires first.
+
 The builder surface is:
 
 ```rust
@@ -72,8 +84,9 @@ use fidelity::{Action, SignalStrength};
 let _handle = fidelity::new()
     .integrity(Action::Crash, SignalStrength::High)
     .instrumentation(Action::Callback, SignalStrength::Medium)
-    .on_finding(|finding| {
+    .on_finding(|handle, finding| {
         // Keep this fast: it runs on the Fidelity worker.
+        let _snapshot = handle.snapshot();
         eprintln!("{finding:?}");
     })
     .start()?;
@@ -86,10 +99,16 @@ let _handle = fidelity::new()
 serves every category that selects `Callback`, and the finding names the category. It runs for a
 finding at or above that category's threshold, and never for a category with another action.
 
-The callback runs synchronously on the worker, after the runtime latches the state. It never runs on
-the calling thread, including the thread that called `start()`. It must be quick, because it delays
-later scans. `ensure_allowed()` and `snapshot()` are safe inside the callback, because the runtime
-holds no lock while the callback runs.
+The callback runs synchronously on the worker, after the runtime latches the state. It receives the
+`Handle` and the `Finding`. It never runs on the thread that called `start()`. An initial callback
+completes before `start()` returns. A later callback delays the next scan.
+
+The host callback duration can extend `start()`. Detector cost measurements exclude that duration.
+`ensure_allowed()`, `deny()`, `report_ui_abuse()`, and `snapshot()` are safe inside the callback,
+because the runtime holds no lock while the callback runs.
+
+Do not call `wait_for_first_full_scan()` from the callback. The worker cannot complete the scan
+until the callback returns.
 
 A panic in the callback must not stop detection. The runtime catches the unwind. It records a `Low`
 detector-health finding in the category of the finding that the callback received. The worker
@@ -107,9 +126,12 @@ strategy.
   weak signals together itself. It only adds a denial, so it is not an off-switch. A host latch has
   no finding behind it, so `snapshot()` keeps it separate.
 - `StartError::AlreadyRunning` identifies the process-wide singleton conflict. A missing callback, a
-  platform initialization failure, a worker creation failure, and every other fundamental startup
-  failure is a distinct typed case. Fidelity does not flatten them into an unstructured string. A
-  failed `start()` releases the slot, so one bad configuration never blocks a corrected retry.
+  platform initialization failure, a worker creation failure, an early worker stop, and every
+  other fundamental startup failure is a distinct typed case. Fidelity does not flatten them into
+  an unstructured string. A failed or unwound `start()` clears its provisional slot, latch,
+  coverage state, and startup policy. A corrected retry starts from a clean process state.
+- `StartError::RequiredCoverageUnavailable` names every required category that lacks complete
+  platform detector coverage. A detector health finding counts as absent coverage here.
 - `snapshot()` returns the authoritative bounded state: the permanent latch, the categories that
   the host latched, and the retained detector state. See
   [state and budgets](07-state-and-budgets.md).
@@ -168,10 +190,15 @@ For each observation, the runtime:
 3. applies the qualifying callback or stops the process.
 
 The denial latch is the only latch, so a `Report` finding denies nothing. Steps 1 and 2 finish
-inside the initial scan, and step 3 belongs to the worker. A `Deny` is therefore active as soon as
-`start()` returns, and `start()` still returns before a callback runs.
+inside the initial scan, and step 3 belongs to the worker. `start()` waits for step 3. A `Deny` is
+active before success, and an initial callback completes before success.
 
-`Crash` does not unwind or run cleanup, and it never fires on a
+The process-wide deny word is the latch linearization point. The runtime writes it while it holds
+the state lock, then it writes the engine latch. A snapshot waits for that lock, so it cannot show
+a latch before `ensure_allowed()` denies.
+
+An initial `Crash` stops the process before `start()` returns. `Crash` does not unwind or run
+cleanup, and it never fires on a
 [health finding](01-product.md#v1-responses). Its finding is authoritative state, and the callback
 may never run.
 

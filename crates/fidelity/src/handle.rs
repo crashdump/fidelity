@@ -1,4 +1,5 @@
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Duration;
 
 use fidelity_engine::{Pending, Policy, State, now_unix_ms};
 use fidelity_types::{Category, Snapshot, UiObservation};
@@ -111,16 +112,19 @@ impl Handle {
     ///
     /// The call is safe inside the finding callback.
     pub fn deny(&self, category: Category) {
-        // Both latches are written while this guard lives, so the two never
-        // disagree. `snapshot()` takes the same lock, so a reader that finds
-        // the process-wide word clear cannot yet read the latched state.
+        self.deny_with(category, crate::latch);
+    }
+
+    fn deny_with(&self, category: Category, latch: fn(Category)) {
         let mut state = self
             .runtime
             .state
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
+        // The process word is the latch linearization point. `snapshot()`
+        // waits for this lock, so it returns only after the state agrees.
+        latch(category);
         state.latch_by_host(category);
-        crate::latch(category);
     }
 
     /// Reports what the host observed on its own user interface.
@@ -135,8 +139,7 @@ impl Handle {
     /// The host supplies the fact, and Fidelity decides the strength, the
     /// evidence, and the action. A host that stated its own strength would be
     /// stating policy, and
-    /// [detectors and platforms](https://github.com/crashdump/fidelity/blob/main/docs/plan/04-detectors-and-platforms.md)
-    /// keeps that with Fidelity.
+    /// [Detectors and platforms][plan] keeps that with Fidelity.
     ///
     /// The call records the finding at once, so a configured `Deny` latches
     /// before this returns and [`ensure_allowed`](Handle::ensure_allowed)
@@ -149,6 +152,8 @@ impl Handle {
     /// one cycle of reports and never a history.
     ///
     /// The call is safe inside the finding callback.
+    ///
+    /// [plan]: https://github.com/crashdump/fidelity/blob/main/docs/plan/04-detectors-and-platforms.md
     ///
     /// # Examples
     ///
@@ -187,6 +192,20 @@ impl Handle {
         full_scan_complete()
     }
 
+    /// Waits until the worker completes its first full scan, or time expires.
+    ///
+    /// This call does not start a scan. It blocks for `timeout` at most and
+    /// returns `true` after complete coverage. It returns `false` when time
+    /// expires first.
+    ///
+    /// Do not call this method from the finding callback. The callback runs on
+    /// the worker, so the worker cannot complete its scan until the callback
+    /// returns.
+    #[must_use]
+    pub fn wait_for_first_full_scan(&self, timeout: Duration) -> bool {
+        crate::wait_for_full_scan(timeout)
+    }
+
     /// The code identity that the initial scan observed.
     ///
     /// [`guarded!`](crate::guarded) reads this. It is not part of the
@@ -221,7 +240,10 @@ impl Handle {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex};
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+    use std::sync::{Arc, Barrier, Mutex};
+    use std::thread;
+    use std::time::Duration;
 
     use fidelity_engine::{Pending, Policy, State};
     use fidelity_types::{Category, Detector};
@@ -291,6 +313,21 @@ mod tests {
     }
 
     #[test]
+    fn a_failed_process_latch_never_leaves_a_host_latch_ahead() {
+        fn broken_latch(_category: Category) {
+            panic!("the process latch failed")
+        }
+
+        let handle = handle();
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            handle.deny_with(Category::Debugging, broken_latch);
+        }));
+
+        assert!(result.is_err(), "the test hook must fail");
+        assert!(handle.snapshot().host_latched_categories().is_empty());
+    }
+
+    #[test]
     fn the_two_latches_never_disagree() {
         let _guard = crate::exclusive_test();
         let handle = handle();
@@ -346,6 +383,103 @@ mod tests {
         assert!(!handle.first_full_scan_complete());
         crate::mark_full_scan_complete();
         assert!(handle.first_full_scan_complete());
+    }
+
+    #[test]
+    fn a_completed_scan_makes_the_wait_return_true() {
+        let _guard = crate::exclusive_test();
+        crate::mark_full_scan_complete();
+        assert!(handle().wait_for_first_full_scan(std::time::Duration::ZERO));
+    }
+
+    #[test]
+    fn a_wait_returns_false_when_time_expires_first() {
+        let _guard = crate::exclusive_test();
+        assert!(!handle().wait_for_first_full_scan(Duration::ZERO));
+    }
+
+    #[test]
+    fn scan_completion_releases_a_waiter() {
+        let _guard = crate::exclusive_test();
+        let barrier = Arc::new(Barrier::new(2));
+        let waiter = Arc::clone(&barrier);
+        let handle = handle();
+        let joined = thread::spawn(move || {
+            waiter.wait();
+            handle.wait_for_first_full_scan(Duration::from_secs(1))
+        });
+        barrier.wait();
+        crate::mark_full_scan_complete();
+        let Ok(completed) = joined.join() else {
+            panic!("the coverage waiter must not panic")
+        };
+        assert!(completed);
+    }
+
+    #[test]
+    fn scan_completion_releases_all_waiters() {
+        let _guard = crate::exclusive_test();
+        let barrier = Arc::new(Barrier::new(65));
+        let mut threads = Vec::new();
+        for _ in 0..64 {
+            let barrier = Arc::clone(&barrier);
+            let handle = handle();
+            threads.push(thread::spawn(move || {
+                barrier.wait();
+                handle.wait_for_first_full_scan(Duration::from_secs(1))
+            }));
+        }
+        barrier.wait();
+        crate::mark_full_scan_complete();
+
+        for joined in threads {
+            let Ok(completed) = joined.join() else {
+                panic!("a coverage waiter must not panic")
+            };
+            assert!(completed, "every waiter must see the completed scan");
+        }
+    }
+
+    #[test]
+    fn an_early_timeout_does_not_consume_scan_completion() {
+        let _guard = crate::exclusive_test();
+        let handle = handle();
+        assert!(!handle.wait_for_first_full_scan(Duration::ZERO));
+        crate::mark_full_scan_complete();
+        assert!(handle.wait_for_first_full_scan(Duration::ZERO));
+    }
+
+    #[test]
+    fn concurrent_host_latches_keep_the_atomic_and_snapshot_equal() {
+        let _guard = crate::exclusive_test();
+        let handle = handle();
+        let categories = [
+            Category::Integrity,
+            Category::Debugging,
+            Category::Instrumentation,
+            Category::DeviceCompromise,
+            Category::Virtualization,
+            Category::UiAbuse,
+        ];
+        let mut threads = Vec::new();
+        for category in categories {
+            let handle = handle.clone();
+            threads.push(thread::spawn(move || {
+                for _ in 0..100 {
+                    handle.deny(category);
+                    drop(handle.snapshot());
+                    drop(handle.ensure_allowed());
+                }
+            }));
+        }
+        for joined in threads {
+            assert!(joined.join().is_ok(), "a latch thread must not panic");
+        }
+        let from_check = handle
+            .ensure_allowed()
+            .err()
+            .map(|denial| denial.categories());
+        assert_eq!(from_check, Some(handle.snapshot().latched_categories()));
     }
 
     #[test]

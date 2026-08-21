@@ -71,6 +71,8 @@
 #![forbid(unsafe_code)]
 
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::{Condvar, Mutex, PoisonError};
+use std::time::Duration;
 
 mod backend;
 pub(crate) mod builder;
@@ -146,6 +148,9 @@ static LATCHED: AtomicU32 = AtomicU32::new(0);
 /// until every detector has run once.
 static FULL_SCAN_DONE: AtomicBool = AtomicBool::new(false);
 
+/// The bounded wait for the first full scan.
+static FULL_SCAN_WAIT: (Mutex<bool>, Condvar) = (Mutex::new(false), Condvar::new());
+
 /// Whether the host asked to deny until the first full scan completes.
 ///
 /// The configuration is immutable after the start, and one runtime runs per
@@ -184,12 +189,50 @@ pub(crate) fn clear_latched() {
     LATCHED.store(0, Ordering::Release);
 }
 
+/// Clears every process word after an incomplete start.
+///
+/// The caller owns the process slot, so no live runtime can observe this
+/// rollback. The slot changes last, which makes the clean state visible to
+/// the next successful claimant.
+pub(crate) fn abandon_start() {
+    DENY_UNTIL_FULL_SCAN.store(false, Ordering::Release);
+    clear_latched();
+    let mut done = FULL_SCAN_WAIT
+        .0
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    *done = false;
+    FULL_SCAN_DONE.store(false, Ordering::Release);
+    release_slot();
+}
+
 pub(crate) fn full_scan_complete() -> bool {
     FULL_SCAN_DONE.load(Ordering::Acquire)
 }
 
 pub(crate) fn mark_full_scan_complete() {
+    let mut done = FULL_SCAN_WAIT
+        .0
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    *done = true;
     FULL_SCAN_DONE.store(true, Ordering::Release);
+    FULL_SCAN_WAIT.1.notify_all();
+}
+
+pub(crate) fn wait_for_full_scan(timeout: Duration) -> bool {
+    if full_scan_complete() {
+        return true;
+    }
+    let done = FULL_SCAN_WAIT
+        .0
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    let (done, _) = FULL_SCAN_WAIT
+        .1
+        .wait_timeout_while(done, timeout, |done| !*done)
+        .unwrap_or_else(PoisonError::into_inner);
+    *done
 }
 
 pub(crate) fn denies_until_full_scan() -> bool {
@@ -216,13 +259,20 @@ pub(crate) fn exclusive_test() -> std::sync::MutexGuard<'static, ()> {
     RUNNING.store(false, Ordering::Release);
     LATCHED.store(0, Ordering::Release);
     FULL_SCAN_DONE.store(false, Ordering::Release);
+    *FULL_SCAN_WAIT
+        .0
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner) = false;
     DENY_UNTIL_FULL_SCAN.store(false, Ordering::Release);
     guard
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Category, exclusive_test, latch, latched_categories};
+    use std::sync::{Arc, Barrier};
+    use std::thread;
+
+    use super::{Category, claim_slot, exclusive_test, latch, latched_categories, release_slot};
 
     #[test]
     fn a_latch_shows_up_in_the_process_wide_state() {
@@ -243,5 +293,32 @@ mod tests {
     fn a_clean_process_latches_nothing() {
         let _guard = exclusive_test();
         assert!(latched_categories().is_empty());
+    }
+
+    #[test]
+    fn concurrent_claims_select_one_runtime() {
+        let _guard = exclusive_test();
+        let barrier = Arc::new(Barrier::new(65));
+        let mut threads = Vec::new();
+        for _ in 0..64 {
+            let barrier = Arc::clone(&barrier);
+            threads.push(thread::spawn(move || {
+                barrier.wait();
+                claim_slot()
+            }));
+        }
+        barrier.wait();
+
+        let mut claims = 0;
+        for joined in threads {
+            let Ok(claimed) = joined.join() else {
+                panic!("a slot claimant must not panic")
+            };
+            claims += usize::from(claimed);
+        }
+
+        assert_eq!(claims, 1);
+        release_slot();
+        assert!(claim_slot(), "a released slot must accept the next start");
     }
 }

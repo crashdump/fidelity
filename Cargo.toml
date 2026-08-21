@@ -17,7 +17,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 # `docs/plan/06-delivery.md` pins the MSRV to one concrete version, at or below
 # the current stable release minus two. A new Rust release never raises it.
@@ -32,18 +32,18 @@ keywords = ["security", "tamper", "integrity", "debugger", "jailbreak"]
 # Cargo drops a path-only dev-dependency when it packages a crate, and that is
 # what lets a published crate depend on a crate that stays unpublished.
 [workspace.dependencies]
-fidelity-cipher = { path = "crates/fidelity-cipher", version = "0.2.0" }
-fidelity-core = { path = "crates/fidelity-core", version = "0.2.0" }
-fidelity-detect = { path = "crates/fidelity-detect", version = "0.2.0" }
-fidelity-engine = { path = "crates/fidelity-engine", version = "0.2.0" }
-fidelity-formats = { path = "crates/fidelity-formats", version = "0.2.0" }
-fidelity-macros = { path = "crates/fidelity-macros", version = "0.2.0" }
-fidelity-probe-android = { path = "crates/probe/fidelity-probe-android", version = "0.2.0" }
-fidelity-probe-apple = { path = "crates/probe/fidelity-probe-apple", version = "0.2.0" }
-fidelity-probe-linux = { path = "crates/probe/fidelity-probe-linux", version = "0.2.0" }
-fidelity-probe-windows = { path = "crates/probe/fidelity-probe-windows", version = "0.2.0" }
+fidelity-cipher = { path = "crates/fidelity-cipher", version = "0.3.0" }
+fidelity-core = { path = "crates/fidelity-core", version = "0.3.0" }
+fidelity-detect = { path = "crates/fidelity-detect", version = "0.3.0" }
+fidelity-engine = { path = "crates/fidelity-engine", version = "0.3.0" }
+fidelity-formats = { path = "crates/fidelity-formats", version = "0.3.0" }
+fidelity-macros = { path = "crates/fidelity-macros", version = "0.3.0" }
+fidelity-probe-android = { path = "crates/probe/fidelity-probe-android", version = "0.3.0" }
+fidelity-probe-apple = { path = "crates/probe/fidelity-probe-apple", version = "0.3.0" }
+fidelity-probe-linux = { path = "crates/probe/fidelity-probe-linux", version = "0.3.0" }
+fidelity-probe-windows = { path = "crates/probe/fidelity-probe-windows", version = "0.3.0" }
 fidelity-testkit = { path = "crates/fidelity-testkit" }
-fidelity-types = { path = "crates/fidelity-types", version = "0.2.0" }
+fidelity-types = { path = "crates/fidelity-types", version = "0.3.0" }
 
 # The two optional dependencies in the workspace, and both are off by default,
 # so a default build still resolves to no external crate at all. A test in

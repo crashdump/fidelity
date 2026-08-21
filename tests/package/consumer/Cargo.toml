@@ -1,0 +1,24 @@
+[package]
+name = "fidelity-package-check"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.85"
+publish = false
+
+[workspace]
+
+[dependencies]
+fidelity = { path = "packages/fidelity-0.3.0", features = ["serde", "tracing"] }
+
+[patch.crates-io]
+fidelity-cipher = { path = "packages/fidelity-cipher-0.3.0" }
+fidelity-core = { path = "packages/fidelity-core-0.3.0" }
+fidelity-detect = { path = "packages/fidelity-detect-0.3.0" }
+fidelity-engine = { path = "packages/fidelity-engine-0.3.0" }
+fidelity-formats = { path = "packages/fidelity-formats-0.3.0" }
+fidelity-macros = { path = "packages/fidelity-macros-0.3.0" }
+fidelity-probe-android = { path = "packages/fidelity-probe-android-0.3.0" }
+fidelity-probe-apple = { path = "packages/fidelity-probe-apple-0.3.0" }
+fidelity-probe-linux = { path = "packages/fidelity-probe-linux-0.3.0" }
+fidelity-probe-windows = { path = "packages/fidelity-probe-windows-0.3.0" }
+fidelity-types = { path = "packages/fidelity-types-0.3.0" }

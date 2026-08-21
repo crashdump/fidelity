@@ -36,11 +36,12 @@ states it arrives on a touch that a view the host owns receives. So the host rea
 The Rust API is:
 
 ```rust
-use fidelity::{Action, SignalStrength};
+use fidelity::{Action, Category, SignalStrength};
 
 let handle = fidelity::new()
     .integrity(Action::Crash, SignalStrength::High)
     .debugging(Action::Deny, SignalStrength::Medium)
+    .require_complete_coverage(Category::Debugging)
     .start()?;
 
 // The structural path. A repackaged application decrypts garbage.
@@ -50,6 +51,8 @@ let host = fidelity::guarded!(&handle, "api.example.com");
 handle.ensure_allowed()?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
+
+The requirement turns absent debugger coverage into a typed start error.
 
 Prefer [`guarded!()`](docs/adr/0007-value-producing-check.md). It encrypts a host constant against
 the platform code identity, so there is no branch to invert: a wrong key returns a wrong value, not

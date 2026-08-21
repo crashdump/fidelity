@@ -1,0 +1,103 @@
+[package]
+name = "fidelity-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+fidelity-formats = { path = "../crates/fidelity-formats" }
+fidelity-types = { path = "../crates/fidelity-types" }
+libfuzzer-sys = "0.4"
+
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "apk_zip"
+path = "fuzz_targets/apk_zip.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "apk_signing"
+path = "fuzz_targets/apk_signing.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "macho_signature"
+path = "fuzz_targets/macho_signature.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "macho_entitlements"
+path = "fuzz_targets/macho_entitlements.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "macho_dispatch"
+path = "fuzz_targets/macho_dispatch.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "macho_image"
+path = "fuzz_targets/macho_image.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "elf_dynamic"
+path = "fuzz_targets/elf_dynamic.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "elf_relocations"
+path = "fuzz_targets/elf_relocations.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "pe_imports"
+path = "fuzz_targets/pe_imports.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "pe_certificate"
+path = "fuzz_targets/pe_certificate.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "smbios"
+path = "fuzz_targets/smbios.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "proc_maps"
+path = "fuzz_targets/proc_maps.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "bounded_text"
+path = "fuzz_targets/bounded_text.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "identity_inputs"
+path = "fuzz_targets/identity_inputs.rs"
+test = false
+doc = false

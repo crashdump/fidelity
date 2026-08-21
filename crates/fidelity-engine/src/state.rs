@@ -66,7 +66,7 @@ impl Slot {
 pub struct State {
     latched: CategorySet,
     host_latched: CategorySet,
-    slots: Vec<Slot>,
+    slots: Box<[Slot]>,
 }
 
 impl State {
@@ -76,7 +76,12 @@ impl State {
         Self {
             latched: CategorySet::new(),
             host_latched: CategorySet::new(),
-            slots: detectors.iter().copied().map(Slot::new).collect(),
+            slots: detectors
+                .iter()
+                .copied()
+                .map(Slot::new)
+                .collect::<Vec<_>>()
+                .into_boxed_slice(),
         }
     }
 
@@ -126,11 +131,14 @@ impl State {
     /// Builds the authoritative bounded state.
     #[must_use]
     pub fn snapshot(&self) -> Snapshot {
-        Snapshot::new(
-            self.latched,
-            self.host_latched,
-            self.slots.iter().map(Slot::to_public).collect(),
-        )
+        let detectors = self
+            .slots
+            .iter()
+            .map(Slot::to_public)
+            .collect::<Vec<_>>()
+            .into_boxed_slice()
+            .into_vec();
+        Snapshot::new(self.latched, self.host_latched, detectors)
     }
 }
 

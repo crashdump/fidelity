@@ -1,12 +1,54 @@
 # Changelog
 
 `docs/plan/06-delivery.md` states that an MSRV increase is a minor version bump and appears here.
-The `fidelity` crate follows SemVer. Every other crate in the workspace is an internal
-implementation detail and carries no compatibility promise, so a change to one of them appears here
-only when it changes what `fidelity` exposes.
+The `fidelity` crate and `tauri-plugin-fidelity` follow SemVer. Every other crate is an internal
+implementation detail and carries no compatibility promise. A change to one appears here only when
+it changes one of those two public surfaces.
 
-This file records released versions. The work before the first release lives in the git history and
-in `tests/platform/README.md`, which states what each platform proved and what it did not.
+This file records released versions and the current release candidate. The work before the first
+release lives in the git history and in `tests/platform/README.md`, which states what each platform
+proved and what it did not.
+
+## 0.3.0 - 2026-08-21
+
+- Hosts can require complete platform detector coverage for a category. An unsupported, absent, or
+  unhealthy detector then returns `StartError::RequiredCoverageUnavailable`. A later detector in
+  that category becomes required automatically.
+- `start()` now returns after every initial action completes. An initial callback receives the
+  `Handle` and the `Finding`, and it completes before success. An initial `Crash` stops the process
+  before success. `StartError::WorkerStoppedDuringStart` reports an early worker stop.
+- Every platform gains controls for executable code that becomes writable and for the 1024-region
+  baseline limit. All five controls pass on ARM64. The Android control ran on an Android 16 and API
+  36 emulator.
+- An independent fuzz workspace attacks 14 hostile-input families. It adds Mach-O image commands,
+  bounded text, and identity inputs to the 11 reader families from the first scope.
+- Linux and Android use safe ELF readers for dispatch tables. Apple uses safe Mach-O readers for
+  dispatch and code-signature commands. Windows uses the safe PE readers.
+- Apple checks each raw parser range with the Mach VM map. Windows copies readable image pages into
+  a bounded parser buffer, so a Rust slice never crosses an inaccessible gap.
+- Runtime state, public snapshots, baselines, dispatch tables, and pending actions use exact bounded
+  storage. The pending queue owns a fixed 16-entry array.
+- Region and dispatch comparisons use one forward pass. Fixed-seed tests compare them against simple
+  reference rules across 1,024 generated cases.
+- The process deny word is the latch linearization point. A snapshot cannot show a latch before
+  `ensure_allowed()` denies.
+- A failed or unwound start rolls back the slot, latch, coverage state, and startup policy. A
+  64-thread control proves that one start owns the slot.
+- `Handle::wait_for_first_full_scan()` supplies a bounded coverage wait. A 64-waiter control proves
+  that one completion releases all waiters without loss.
+- A panic in platform worker setup becomes a typed setup failure instead of escaping from
+  `start()`.
+- Android now selects the application archive from the loaded image that holds Fidelity. A private
+  process and a global process use the same image rule, independent of the process name.
+- The optional Serde surface has an exact data-model fixture for every public type and each
+  `Evidence` variant. Public runtime read types have compile-time `Send` and `Sync` checks.
+- The package gate checks all facade feature combinations on Rust 1.85. It checks the Tauri adapter
+  on Rust 1.88. It compares two independent archive sets byte for byte before it builds a consumer.
+- The Tauri adapter now needs Rust 1.88. Patched `plist`, `quick-xml`, and `time` releases require
+  that version. The locked adapter graph contains no RustSec vulnerability.
+- `tauri-plugin-fidelity` supplies a Rust-only Tauri 2 lifecycle adapter. It starts Fidelity in the
+  plugin setup hook, stores the `Handle` in Rust state, and exposes no WebView interface. A Tauri
+  mock-runtime test executes that setup path.
 
 ## 0.2.0 - 2026-08-20
 

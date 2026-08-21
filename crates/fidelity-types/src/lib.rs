@@ -42,32 +42,4 @@ pub use snapshot::{DetectorState, Snapshot};
 pub use strength::SignalStrength;
 
 #[cfg(all(test, feature = "serde"))]
-mod serde_tests {
-    //! The optional feature states that a host can export a finding. These
-    //! tests prove that every type a report reaches carries the bound, and
-    //! they add no format crate to do it: a value that satisfies `Serialize`
-    //! is what the feature promises, and the encoding is the host's choice.
-
-    use crate::{
-        Action, BoundedText, Category, CategorySet, Detector, DetectorState, Evidence, Finding,
-        Outcome, Platform, SignalStrength, Snapshot,
-    };
-
-    const fn exports<T: serde::Serialize>() {}
-
-    #[test]
-    fn every_type_that_a_report_reaches_can_be_exported() {
-        exports::<Snapshot>();
-        exports::<DetectorState>();
-        exports::<Outcome>();
-        exports::<Finding>();
-        exports::<Evidence>();
-        exports::<BoundedText>();
-        exports::<Detector>();
-        exports::<Category>();
-        exports::<CategorySet>();
-        exports::<SignalStrength>();
-        exports::<Action>();
-        exports::<Platform>();
-    }
-}
+mod schema_tests;

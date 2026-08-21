@@ -378,6 +378,163 @@ fn the_format_crate_holds_no_platform_code_and_no_dependency() {
 }
 
 #[test]
+fn dispatch_boundaries_use_the_safe_format_readers() {
+    let root = root();
+    for platform in ["linux", "android"] {
+        let file = root.join(format!(
+            "crates/probe/fidelity-probe-{platform}/src/sys/dispatch.rs"
+        ));
+        let source = fs::read_to_string(&file)
+            .unwrap_or_else(|error| panic!("{} must exist: {error}", file.display()));
+        assert!(
+            source.contains("fidelity_formats::elf")
+                && !source.contains("struct Dyn")
+                && !source.contains("struct Rela"),
+            "{platform} must use the safe ELF reader"
+        );
+    }
+
+    let apple = root.join("crates/probe/fidelity-probe-apple/src/sys/dispatch.rs");
+    let source = fs::read_to_string(&apple)
+        .unwrap_or_else(|error| panic!("{} must exist: {error}", apple.display()));
+    assert!(
+        source.contains("fidelity_formats::macho::dispatch")
+            && !source.contains("struct LoadCommand")
+            && !source.contains("struct Section"),
+        "Apple must use the safe Mach-O reader"
+    );
+
+    let image = root.join("crates/probe/fidelity-probe-apple/src/sys/image.rs");
+    let source = fs::read_to_string(&image)
+        .unwrap_or_else(|error| panic!("{} must exist: {error}", image.display()));
+    assert!(
+        source.contains("fidelity_formats::macho::image")
+            && !source.contains("struct LoadCommand")
+            && !source.contains("struct SegmentCommand"),
+        "Apple identity must use the safe Mach-O image reader"
+    );
+
+    let windows = root.join("crates/probe/fidelity-probe-windows/src/sys/dispatch.rs");
+    let source = fs::read_to_string(&windows)
+        .unwrap_or_else(|error| panic!("{} must exist: {error}", windows.display()));
+    assert!(
+        source.contains("copy_readable_allocation") && !source.contains("from_raw_parts"),
+        "Windows must copy readable image pages before the PE reader"
+    );
+}
+
+#[test]
+fn the_parser_attack_crate_stays_outside_the_production_workspace() {
+    let manifest = fs::read_to_string(root().join("Cargo.toml"))
+        .unwrap_or_else(|error| panic!("the workspace manifest must exist: {error}"));
+    assert!(
+        !manifest.lines().any(|line| line.trim() == "\"fuzz\","),
+        "the parser attack crate must not enter the production workspace"
+    );
+}
+
+#[test]
+fn the_parser_attack_crate_owns_its_workspace() {
+    let manifest = fs::read_to_string(root().join("fuzz/Cargo.toml"))
+        .unwrap_or_else(|error| panic!("the parser attack manifest must exist: {error}"));
+    assert!(
+        manifest.lines().any(|line| line.trim() == "[workspace]"),
+        "the parser attack crate must own an independent workspace"
+    );
+}
+
+#[test]
+fn each_parser_attack_target_has_a_workflow_and_a_seed() {
+    let root = root();
+    let manifest = fs::read_to_string(root.join("fuzz/Cargo.toml"))
+        .unwrap_or_else(|error| panic!("the parser attack manifest must exist: {error}"));
+    let workflow = fs::read_to_string(root.join(".github/workflows/fuzz.yml"))
+        .unwrap_or_else(|error| panic!("the parser attack workflow must exist: {error}"));
+    let mut targets = Vec::new();
+    let mut reads_name = false;
+    for line in manifest.lines().map(str::trim) {
+        if line == "[[bin]]" {
+            reads_name = true;
+            continue;
+        }
+        if reads_name && line.starts_with("name = \"") {
+            targets.push(line.trim_start_matches("name = \"").trim_end_matches('"'));
+            reads_name = false;
+        }
+    }
+
+    assert_eq!(
+        targets.len(),
+        14,
+        "the plan requires 14 parser attack targets"
+    );
+    for target in targets {
+        assert!(
+            workflow.contains(&format!("          - {target}")),
+            "the parser attack workflow omits {target}"
+        );
+        assert!(
+            root.join("fuzz/corpus").join(target).join("seed").is_file(),
+            "the parser attack target {target} has no seed"
+        );
+    }
+}
+
+#[test]
+fn the_tauri_adapter_stays_outside_the_production_workspace() {
+    let manifest = fs::read_to_string(root().join("bindings/tauri-plugin-fidelity/Cargo.toml"))
+        .unwrap_or_else(|error| panic!("the Tauri adapter manifest must exist: {error}"));
+    assert!(
+        manifest.lines().any(|line| line.trim() == "[workspace]"),
+        "the Tauri adapter must own an independent workspace"
+    );
+
+    let source = fs::read_to_string(root().join("bindings/tauri-plugin-fidelity/src/lib.rs"))
+        .unwrap_or_else(|error| panic!("the Tauri adapter library must exist: {error}"));
+    assert!(
+        !source.contains("#[tauri::command]") && !source.contains("invoke_handler"),
+        "the Tauri adapter must expose no WebView command"
+    );
+}
+
+#[test]
+fn the_tauri_adapter_matches_its_small_public_surface() {
+    let source = fs::read_to_string(root().join("bindings/tauri-plugin-fidelity/src/lib.rs"))
+        .unwrap_or_else(|error| panic!("the Tauri adapter library must exist: {error}"));
+    let surface: Vec<&str> = source
+        .lines()
+        .map(str::trim)
+        .filter(|line| {
+            line.starts_with("pub fn ")
+                || line.starts_with("pub trait ")
+                || line.starts_with("fn fidelity_handle(")
+                || line.starts_with("fn ensure_fidelity_allowed(")
+        })
+        .collect();
+    assert_eq!(
+        surface,
+        [
+            "pub fn init<R: Runtime>(builder: fidelity::Builder) -> TauriPlugin<R> {",
+            "pub trait FidelityExt<R: Runtime>: Manager<R> {",
+            "fn fidelity_handle(&self) -> fidelity::Handle {",
+            "fn ensure_fidelity_allowed(&self) -> Result<(), fidelity::Denied> {",
+        ]
+    );
+}
+
+#[test]
+fn the_package_gate_compares_two_archive_sets() {
+    let source = fs::read_to_string(root().join("tests/package.sh"))
+        .unwrap_or_else(|error| panic!("the package gate must exist: {error}"));
+    assert!(
+        source.contains("package-first")
+            && source.contains("package-second")
+            && source.contains("cmp"),
+        "the package gate must compare two independent archive sets"
+    );
+}
+
+#[test]
 fn the_android_cost_measurement_reads_what_one_worker_cycle_reads() {
     // The instrumented harness measures a worker cycle and names its own read
     // list, and `Detectors::scan_cheap` owns the real one. The two drifted

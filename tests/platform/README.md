@@ -69,6 +69,10 @@ The capability and system names match the coverage matrix exactly, because the t
 | `lifecycle` | none | iOS | iOS 26, simulator | the same two controls, in the simulator. `resume-after-freeze-ios`, in an iOS 18.4 simulator, 2026-08-19: a freeze of 20.0 s moved no scan, and the first scan after the resume landed 0 ms after it | none. The capability reports no finding, so it has no hostile control. |
 | `lifecycle` | none | Android | Android 37, emulator | an instrumented test attaches a thread the machine has never seen, both from a host handle and by discovery, and a shell binary that runs no machine reports that gap. `resume-after-freeze-android`, on Android 17 and API 37, 2026-08-19: a freeze of 20.0 s moved no scan, and the first scan after the resume landed 1 ms after it | none. The capability reports no finding, so it has no hostile control. |
 
+The 0.3 baseline boundary controls exist for all five platforms. Each run reported
+`CodeMadeWritable` at `Medium` and `Unsupported` above 1024 regions. The Android control ran on an
+Android 16 and API 36 emulator on 2026-08-21.
+
 ## The second architecture
 
 Every row above ran on ARM64. Windows answers for x86_64 on this same machine, because an ARM64

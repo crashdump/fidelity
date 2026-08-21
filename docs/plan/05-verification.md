@@ -21,6 +21,36 @@ applies to it, and nobody compresses it. For each detector and platform pair, Fi
 A mock that produces the output of a detector does not implement that detector. At least one
 representative real hostile test must exercise the backend mechanism.
 
+## Parser attack tests
+
+The independent `fuzz/` workspace attacks these 14 input families:
+
+- APK ZIP;
+- APK signature;
+- Mach-O signature;
+- Mach-O entitlements;
+- Mach-O dispatch;
+- Mach-O image commands;
+- ELF dynamic arrays;
+- ELF relocations;
+- PE imports;
+- PE certificate boundaries;
+- SMBIOS;
+- proc maps;
+- bounded text; and
+- identity inputs.
+
+A pull request runs 256 seeded cases for each target. The daily schedule runs each target for 30
+minutes. A release candidate runs each target for two hours.
+
+The workflows pin nightly-2026-06-14. The fuzz workflow pins cargo-fuzz 0.13.2. The fuzz lock file
+pins the target dependencies.
+
+Each target accepts arbitrary bytes or valid UTF-8 text. A malformed value must return a bounded
+answer and must not panic. Linux and Android give bounded ELF slices to the safe readers. Apple
+checks its mapped ranges before it gives bounded command slices to the safe readers. Windows copies
+readable image pages into a bounded buffer before the PE reader runs.
+
 ## Test layers
 
 | Layer | Purpose | Required timing |
@@ -57,7 +87,7 @@ guarded read has no error path, so every read would otherwise return a wrong val
 nothing. The test covers an unsigned image, an image signed ad hoc, a platform without the
 capability, and a failed read.
 
-Release tests adds an extraction test, and it records a limit rather than a defense. Both key
+Release tests add an extraction test, and they record a limit rather than a defense. Both key
 inputs ship inside the artifact, as [ADR-0007](../adr/0007-value-producing-check.md) states, so one
 extractor that knows the derivation reads every guarded constant, in every build, offline. The test
 records that ceiling. It then proves the property that the design does promise: an image that
@@ -95,6 +125,15 @@ addition updates the snapshot in the same change, and a removal or a rename stat
 changelog. The snapshot reads Rust as text, so it holds a declaration and not a resolved type, and
 it reads no `cfg`. One macro writes six public methods, so a second rule proves that its body still
 generates the signature that the snapshot expands.
+
+The Tauri adapter has a second, smaller surface rule. It locks `init`, `FidelityExt`, and its two
+methods. The same rule rejects an invoke handler or a WebView command. A mock-runtime test executes
+the setup hook and reads the stored `Handle` from Tauri state.
+
+`tests/package.sh` locks the files in the two public archives. It checks every facade feature
+combination and builds the packaged workspace with Rust 1.85. It makes two independent production
+archive sets and compares each pair byte for byte. It also checks the Tauri adapter with Rust 1.88
+and its locked Tauri 2 dependency set.
 
 Capability tests keep the [coverage matrix](06-delivery.md#capability-coverage) true. A trait that
 defaults to `Unsupported` lets a gap stay silent, so the table states the intent and a test compares
@@ -143,7 +182,8 @@ A release candidate must show:
 - Fidelity reports an unsupported capability accurately, and never stubs it as a success;
 - the team revalidated the OS floors, the standards identifiers, and every undocumented-interface
   assumption;
-- the team checked finding and snapshot schema compatibility, and the retention bounds; and
+- the team checked finding and snapshot schema compatibility, and the retention bounds;
+- each dependency graph has no RustSec vulnerability and uses an accepted source; and
 - the change introduced no remote network path, and no accidental Tauri command surface.
 
 Rooted devices, jailbroken devices, and physical mobile hardware may run in a controlled release lab
@@ -152,7 +192,7 @@ implemented label.
 
 ## Standards traceability
 
-Verified against OWASP MASVS 2.1.0 and MASTG 2.0.0 on 2026-08-08. Every identifier, weakness title,
+Verified against OWASP MASVS 2.1.0 and MASTG 2.0.0 on 2026-08-21. Every identifier, weakness title,
 and MASVS category below comes from the live site. OWASP publishes the category, not the numbered
 control, so the MASVS control column is this project's own reading and is unverified.
 

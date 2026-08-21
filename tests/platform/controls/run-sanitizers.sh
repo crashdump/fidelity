@@ -28,16 +28,17 @@ set -e
 # fixed default would name one platform, and the control then builds the
 # standard library for a machine it cannot run the tests on.
 TARGET=${FIDELITY_SAN_TARGET:-$(rustc -vV | awk '/^host: / { print $2 }')}
+NIGHTLY_TOOLCHAIN=${FIDELITY_NIGHTLY:-nightly}
 SET="--lib --bins --tests"
 ASKED=${1:-}
 
 if [ "$ASKED" != "just-miri" ]; then
     echo "=== AddressSanitizer, whole workspace ==="
-    RUSTFLAGS="-Zsanitizer=address" cargo +nightly test --workspace \
+    RUSTFLAGS="-Zsanitizer=address" cargo "+$NIGHTLY_TOOLCHAIN" test --workspace \
         --target "$TARGET" -Zbuild-std $SET
 
     echo "=== ThreadSanitizer, whole workspace ==="
-    RUSTFLAGS="-Zsanitizer=thread" cargo +nightly test --workspace \
+    RUSTFLAGS="-Zsanitizer=thread" cargo "+$NIGHTLY_TOOLCHAIN" test --workspace \
         --target "$TARGET" -Zbuild-std $SET
 fi
 
@@ -52,7 +53,7 @@ if [ "$ASKED" = "miri" ] || [ "$ASKED" = "just-miri" ]; then
     # 100000 wrong keys and one hashes a long message, and an interpreter cannot
     # finish any of them. Excluding the whole crate would lose 28 tests that
     # take five seconds, so the exclusion is by name and not by crate.
-    MIRIFLAGS=-Zmiri-disable-isolation cargo +nightly miri test \
+    MIRIFLAGS=-Zmiri-disable-isolation cargo "+$NIGHTLY_TOOLCHAIN" miri test \
         -p fidelity-formats -p fidelity-types -p fidelity-core \
         -p fidelity-detect -p fidelity-cipher -p fidelity-engine \
         -p fidelity-testkit -- \

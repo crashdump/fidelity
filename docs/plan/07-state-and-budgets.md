@@ -20,6 +20,7 @@ nothing streams, so nothing needs ordering.
 for the host. An optional `serde` feature, off by default, provides `Serialize` for the public
 types, so a host that exports a finding chooses its own format. Fidelity owns the field names and
 their meaning. New fields are additive, and a field never changes meaning after release.
+An exact Serde data-model fixture locks every public serializable type and each `Evidence` variant.
 
 ## Memory budget
 
@@ -32,6 +33,11 @@ The host owns any durable history. Evidence is bounded to 4 KiB per retained out
 truncation metadata when a safe text field exceeds its limit.
 
 Tests must prove that repeated findings and recoveries never increase retained state.
+
+The detector slots use an exact boxed slice. Each runtime snapshot drops spare capacity through a
+boxed conversion before it returns its public vector. The pending action queue owns a fixed
+16-entry array, and one worker take returns an exact boxed batch. No retained vector keeps spare
+capacity from an attacker-controlled burst.
 
 ## Guarded constant budget
 
@@ -63,6 +69,11 @@ rather than a partial baseline that reads as complete.
 The cost does not grow with time, with finding frequency, or with anything an attacker chooses. A
 later scan allocates one snapshot, compares it, and drops it.
 
+Each retained region and dispatch snapshot uses an exact boxed slice. The conversion drops spare
+input capacity. Each comparison uses one forward pass over the sorted snapshots, so its cost is
+linear in their lengths. Fixed-seed tests compare both passes against simple reference rules across
+1,024 generated cases.
+
 A probe reads the top-level regions only, and it does not descend into a submap. Measured on macOS
 26 and ARM64, the descending walk costs 27 ms and the top-level walk costs 36 us, because the dyld
 shared cache is a submap of about 1.7 GB. Both see an injected mapping arrive, so the cheap walk
@@ -74,8 +85,8 @@ Fidelity runs inside someone else's process, so its cost is a product constraint
 implementation detail.
 
 - `ensure_allowed()` is a read of latched state. It must not scan, allocate, or block.
-- `start()` must not stall the host. If the initial scan cannot finish inside its bound, the backend
-  reports a `Low` detector-health finding and starts anyway.
+- The detector work in `start()` must stay inside its bound. A slow detector reports a `Low`
+  detector-health finding. A host callback can extend `start()`, and its cost is outside that bound.
 - Steady-state worker cost must stay negligible against an idle host process.
 - A mobile worker must never prevent the OS from suspending the application.
 
@@ -90,8 +101,8 @@ below. `crates/probe/measure.rs` holds the loop that all four examples share, so
 compare directly. Each read goes through `&dyn Environment`, which is the call the engine makes,
 and which is also the only form the optimizer cannot lift out of the loop. Every column used ARM64.
 The first four were measured on 2026-08-10, and the Windows column on 2026-08-18 in the QEMU guest
-that `tests/platform/vm/windows/` builds. The `dispatch_targets` reads were measured on 2026-08-19
-for Linux and Windows, each in that guest, and on 2026-08-20 for macOS, iOS, and Android:
+that `tests/platform/vm/windows/` builds. The Android `dispatch_targets` read was measured on
+2026-08-20. The other four `dispatch_targets` reads were measured on 2026-08-21:
 
 | Read | macOS 26 | iOS 26, simulator | Debian, glibc | Android 37 | Windows 11 |
 |---|---|---|---|---|---|
@@ -100,17 +111,18 @@ for Linux and Windows, each in that guest, and on 2026-08-20 for macOS, iOS, and
 | `tracer_state` | 18 us | 20 us | 3.6 us | 4.8 us | 1.2 us |
 | `code_regions` | 58 us | 70 us | 9.7 us | 35 us | 411 us |
 | `code_origin` | none | none | 9.3 us | 35 us | 410 us |
-| `dispatch_targets` | 511 ns | 511 ns | 358 ns | 2.0 us | 1.0 us |
+| `dispatch_targets` | 2.3 us | 2.3 us | 728 ns | 2.0 us | 117 us |
 | one worker cycle | 416 us | 90 us | 23 us | 178 us | 1.2 ms |
 
-`dispatch_targets` reads one image alone. Linux stops at the first loaded object, Windows reads the
-import table straight from the module base, and Apple walks the load commands of one image, so each
-costs far less than a read that walks the whole mapping table. Android pays about five times the
-Linux figure, because it names no object in advance: it walks the loaded segments of each object
-until it finds the one that holds Fidelity, and
-[detectors and platforms](04-detectors-and-platforms.md#dispatch-targets) states why it must. Even
-so it is the cheapest read that Android makes, by two orders. Each figure adds a few microseconds
-or less to its cycle, which is below the spread of that cycle, so the figures above hold.
+`dispatch_targets` reads one image alone. Linux stops at the first loaded object. Windows copies
+the readable pages of one image into a bounded buffer. Apple checks each parser range against the
+Mach VM map. These checks move the Apple read from 511 ns to 2.3 us. The Windows copy moves the read
+from 1.0 us to 117 us. At a five-second interval, 117 us is 0.0024 percent of one cycle.
+
+Android pays about three times the Linux figure, because it names no object in advance. It walks
+the loaded segments until it finds the object that holds Fidelity.
+[Detectors and platforms](04-detectors-and-platforms.md#dispatch-targets) states why it must. It
+remains the cheapest Android read in the table.
 
 The Android figure was measured on 2026-08-20, on an Android 16 emulator with API 36, and the rest
 of that column came from an API 37 emulator. The two differ by more than the read does.

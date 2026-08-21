@@ -9,8 +9,10 @@
 //! macOS uses to read the team identifier, does not exist there. The signature
 //! that the image already carries is the remaining documented source.
 //!
-//! Every value here is big-endian, whatever the machine runs, because the
-//! blob format states that.
+//! Embedded signature blobs are big-endian. Mach-O load commands are
+//! little-endian on the supported targets. Each reader states its own form.
 
+pub mod dispatch;
 pub mod entitlements;
+pub mod image;
 pub mod signature;

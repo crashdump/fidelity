@@ -36,6 +36,16 @@ pub enum StartError {
         platform: Platform,
     },
 
+    /// The target cannot supply all required detectors for these categories.
+    ///
+    /// The host called `Builder::require_complete_coverage`. At least one
+    /// platform detector reported `Unsupported`, did not run, reported its
+    /// health, or does not exist for the category.
+    RequiredCoverageUnavailable {
+        /// Each category that lacks complete platform detector coverage.
+        categories: CategorySet,
+    },
+
     /// The build binds guarded constants to a code identity, and the running
     /// image reports none.
     ///
@@ -76,6 +86,12 @@ pub enum StartError {
         /// What the operating system reported.
         reason: std::io::ErrorKind,
     },
+
+    /// The worker stopped before every initial action completed.
+    ///
+    /// The start fails because it cannot state that the configured response
+    /// took effect.
+    WorkerStoppedDuringStart,
 }
 
 impl fmt::Display for StartError {
@@ -89,6 +105,10 @@ impl fmt::Display for StartError {
                 f,
                 "expected identity states no choice for the target platform {platform:?}"
             ),
+            Self::RequiredCoverageUnavailable { categories } => {
+                f.write_str("the target platform cannot supply complete detector coverage for ")?;
+                write_categories(f, *categories)
+            }
             Self::IdentityBindingUnavailable { platform, reason } => write!(
                 f,
                 "this build binds guarded constants to a code identity, and the target platform \
@@ -107,11 +127,24 @@ impl fmt::Display for StartError {
                     "the operating system refused the worker thread: {reason}"
                 )
             }
+            Self::WorkerStoppedDuringStart => {
+                f.write_str("the fidelity worker stopped before the initial actions completed")
+            }
         }
     }
 }
 
 impl std::error::Error for StartError {}
+
+/// Writes a category set without exposure of its internal bit positions.
+fn write_categories(f: &mut fmt::Formatter<'_>, categories: CategorySet) -> fmt::Result {
+    let mut separator = "";
+    for category in categories {
+        write!(f, "{separator}{category:?}")?;
+        separator = ", ";
+    }
+    Ok(())
+}
 
 /// Why a protected operation is not allowed.
 ///
@@ -209,6 +242,14 @@ mod tests {
     }
 
     #[test]
+    fn a_required_coverage_error_names_its_categories() {
+        let mut categories = CategorySet::new();
+        categories.insert(Category::Debugging);
+        let text = StartError::RequiredCoverageUnavailable { categories }.to_string();
+        assert!(text.contains("Debugging"), "{text}");
+    }
+
+    #[test]
     fn a_latched_denial_states_that_reason() {
         let denial = Denied::latched(CategorySet::new());
         assert_eq!(denial.reason(), DenialReason::Latched);
@@ -239,5 +280,14 @@ mod tests {
     #[test]
     fn a_start_error_describes_a_singleton_conflict() {
         assert!(StartError::AlreadyRunning.to_string().contains("already"));
+    }
+
+    #[test]
+    fn a_start_error_describes_an_early_worker_stop() {
+        assert!(
+            StartError::WorkerStoppedDuringStart
+                .to_string()
+                .contains("initial actions")
+        );
     }
 }

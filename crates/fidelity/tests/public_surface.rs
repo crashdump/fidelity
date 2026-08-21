@@ -364,3 +364,14 @@ fn the_public_surface_matches_the_accepted_snapshot() {
         if written { "was" } else { "was not" }
     );
 }
+
+#[test]
+fn runtime_read_types_are_send_and_sync() {
+    fn require<T: Send + Sync + 'static>() {}
+
+    require::<fidelity::Handle>();
+    require::<fidelity::Snapshot>();
+    require::<fidelity::Denied>();
+    require::<fidelity::Finding>();
+    require::<fidelity::DetectorState>();
+}

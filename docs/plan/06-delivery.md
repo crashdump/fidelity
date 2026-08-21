@@ -29,7 +29,7 @@ The tree below is the target shape. A crate arrives when a real caller needs it,
 
 ```text
 crates/
-  fidelity/                  supported public Rust facade, the only SemVer surface
+  fidelity/                  supported public Rust facade, and one SemVer surface
     build.rs                   states whether this build binds to a code identity
     src/backend.rs             the one seam that maps a target to its probe
   fidelity-types/            stable public data model, and no logic
@@ -58,7 +58,8 @@ crates/
     fidelity-probe-linux/      glibc Linux
     fidelity-probe-windows/    Windows
 bindings/
-  tauri-plugin-fidelity/     Rust-backend-only Tauri lifecycle adapter
+  tauri-plugin-fidelity/     Rust-only Tauri adapter, and the second SemVer surface
+fuzz/                            independent parser attack workspace
 tests/platform/                    generated release records, which nobody compresses
 ```
 
@@ -91,6 +92,11 @@ operating system. `fidelity-formats` therefore sits off the platform axis: no ta
 `unsafe` code, and no dependency on another crate. Its `procfs` module already serves Linux, and
 Android reads the same text.
 
+The dispatch boundary follows the same rule. Linux and Android use safe ELF readers and prove each
+slice fits inside a load segment. Apple checks each command or section range against the Mach VM
+map before it creates a slice. Safe Mach-O readers parse dispatch and code-signature commands.
+Windows copies readable image pages into a bounded buffer before the safe PE reader runs.
+
 ## Native code
 
 Native code lives inside the probe crate that owns it. Only two platforms need any:
@@ -105,6 +111,15 @@ Native code lives inside the probe crate that owns it. Only two platforms need a
 Native code adds a build step and a second language to review, so a probe adds it only when the
 platform offers no C interface. Mobile support therefore works for any Rust host, and not only for
 Tauri.
+
+## Tauri adapter
+
+`tauri-plugin-fidelity` owns an independent workspace. It pins Tauri 2, starts a supplied
+`fidelity::Builder` in the plugin setup hook, and stores the `Handle` in Tauri state.
+
+`FidelityExt` gives Rust code `fidelity_handle()` and `ensure_fidelity_allowed()`. The adapter
+exposes no WebView command, event, JavaScript package, permission, or capability. Its public
+surface follows SemVer. [ADR-0010](../adr/0010-rust-only-tauri-adapter.md) holds the constraint.
 
 ## Platform code lives in a probe
 
@@ -181,9 +196,10 @@ They must not shape the v1 public API early.
   minus two. A new Rust release never raises it. CI builds the pinned MSRV and current stable. An
   MSRV increase is a minor version bump and appears in the changelog. `tests/platform/run.sh` builds
   the pinned version on every target, because a pin that nothing builds is a claim rather than a
-  fact.
-- The public surface of the `fidelity` crate follows SemVer. Every other crate is an internal
-  implementation detail and carries no compatibility promise.
+  fact. `bindings/tauri-plugin-fidelity/Cargo.toml` pins the adapter MSRV. The package gate builds
+  that version independently.
+- The public surfaces of `fidelity` and `tauri-plugin-fidelity` follow SemVer. Every other crate is
+  an internal implementation detail and carries no compatibility promise.
 - Every crate publishes in one release, at one version. A feature of the facade that forwards to an
   internal crate cannot resolve against an older published copy of that crate, so `cargo package`
   fails until the version rises. Measured on 2026-08-18, when the `tracing` feature landed.
@@ -207,8 +223,7 @@ They must not shape the v1 public API early.
   default, so a host that never asks for one never gets it. Every external crate must carry
   `optional = true` in every manifest that takes it, and a test in `architecture.rs` holds that,
   because a dependency that arrives without the marker still builds.
-- The engine does not require Tokio. The Tauri adapter may bridge findings to an application
-  runtime without exposing them to the webview.
+- The engine does not require Tokio. The Tauri adapter stores the `Handle` in Rust state.
 - v1 exposes no C ABI and no other FFI entry point. Language bindings come after the Rust contract
   is stable, and they carry their own unwind and panic-strategy design.
 - CI verifies forbidden remote-network dependencies and public-surface drift.
@@ -233,6 +248,7 @@ CI runs each of these, and a change is complete only when all of them pass:
 |---|---|
 | `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | lints |
 | `cargo test --workspace --all-features` | every test layer that the host machine can run, and the optional `serde` surface |
+| `tests/package.sh` | feature combinations, byte-identical public archives, the MSRV archive build, and the Tauri surface |
 | `cargo fmt --check` | format |
 | `cargo doc --workspace --no-deps` | rustdoc, with no warning |
 | `cargo check --workspace --target <each of the five>` | every probe crate, from one machine |

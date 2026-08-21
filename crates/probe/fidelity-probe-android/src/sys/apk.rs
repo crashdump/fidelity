@@ -3,8 +3,9 @@
 //! Android reports the signing certificate through `PackageManager`, and that
 //! needs a `Context`. The probe cannot reach one without a hidden interface or
 //! a new public field, and `docs/plan/06-delivery.md` refuses both. The
-//! process maps the archive it runs from, so this module finds that file and
-//! reads the two ranges that hold the signature.
+//! process maps the archive it runs from. The loaded image that holds Fidelity
+//! and that archive share one install root, so this module selects that file
+//! and reads the two ranges that hold the signature.
 //!
 //! The module holds no `unsafe` code, because the kernel answers through the
 //! process filesystem and the archive is an ordinary file. It still lives here
@@ -25,11 +26,8 @@ use fidelity_formats::procfs::maps;
 /// The mapping table of this process.
 const MAPPINGS: &str = "/proc/self/maps";
 
-/// The command line of this process, which starts with its name.
-const COMMAND: &str = "/proc/self/cmdline";
-
-/// Why a process with no readable name reports no certificate.
-pub(crate) const NO_PACKAGE: &str = "this process states no package name";
+/// Why the loader cannot name the image that holds Fidelity.
+pub(crate) const NO_IMAGE: &str = "the loader names no image that holds Fidelity";
 
 /// Why a process that maps no archive reports no certificate.
 pub(crate) const NO_ARCHIVE: &str = "this process maps no application archive";
@@ -54,13 +52,13 @@ pub(crate) const NO_CERTIFICATE: &str = "the signing block names no certificate 
 /// The error names why the certificate is absent, because a probe never
 /// reports a failed read as a clean result.
 pub(crate) fn signer_certificate() -> Result<Vec<u8>, &'static str> {
-    let Some(package) = package() else {
-        return Err(NO_PACKAGE);
+    let Some(image) = super::dispatch::image_path() else {
+        return Err(NO_IMAGE);
     };
     let Ok(text) = std::fs::read_to_string(MAPPINGS) else {
         return Err(NO_MAPPINGS);
     };
-    let Some(path) = maps::package_archive(&text, &package) else {
+    let Some(path) = maps::package_archive_for_image(&text, &image) else {
         return Err(NO_ARCHIVE);
     };
 
@@ -99,34 +97,6 @@ pub(crate) fn signer_certificate() -> Result<Vec<u8>, &'static str> {
     Ok(certificate.to_vec())
 }
 
-/// The package that this process runs.
-///
-/// Android names an application process after its package. A component that
-/// declares a private `android:process` gets the package, a colon, and a
-/// suffix, so the reader stops at the colon.
-///
-/// A component that declares a global `android:process` gets that name alone,
-/// and the name holds no package. This reader answers the process name, no
-/// mapped archive names it, and the capability reports a gap. The answer fails
-/// closed, and it is still wrong: a valid application that runs a component
-/// that way cannot bind an identity. The package manager holds the answer, and
-/// a library cannot reach it, so a correct fix needs a rule that selects the
-/// archive without naming the package first.
-///
-/// The kernel separates the command line with zero bytes, and the first entry
-/// is the name.
-fn package() -> Option<String> {
-    let raw = std::fs::read(COMMAND).ok()?;
-    let first = raw.split(|byte| *byte == 0).next()?;
-    let name = core::str::from_utf8(first).ok()?;
-    let name = name.split(':').next()?;
-
-    if name.is_empty() {
-        return None;
-    }
-    Some(name.to_owned())
-}
-
 /// Reads one range of a file, and never more than the reader's own bound.
 fn read_at(archive: &mut File, at: u64, size: u64) -> Result<Vec<u8>, &'static str> {
     let Ok(size) = usize::try_from(size) else {
@@ -159,9 +129,9 @@ mod tests {
     }
 
     #[test]
-    fn the_process_states_a_name() {
-        // The name is what selects one archive out of the many that a real
+    fn the_loader_states_the_image() {
+        // The image is what selects one archive out of the many that a real
         // application process maps, so an absent one has to fail closed.
-        assert!(super::package().is_some());
+        assert!(super::super::dispatch::image_path().is_some());
     }
 }

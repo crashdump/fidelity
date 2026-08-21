@@ -63,12 +63,17 @@ pub const MAX_TARGETS: usize = 4096;
 /// toolchain links it with full read-only relocation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DispatchTargets {
-    targets: Vec<Target>,
+    targets: Box<[Target]>,
     bound: bool,
     truncated: bool,
 }
 
 impl DispatchTargets {
+    #[cfg(test)]
+    fn retained_capacity(&self) -> usize {
+        self.targets.len()
+    }
+
     /// Creates a snapshot, and keeps [`MAX_TARGETS`] targets at most.
     ///
     /// The targets arrive in slot order, and the snapshot keeps that order, so
@@ -77,7 +82,8 @@ impl DispatchTargets {
     pub fn new(mut targets: Vec<Target>, bound: bool) -> Self {
         targets.sort_unstable();
         let truncated = targets.len() > MAX_TARGETS;
-        targets.truncate(MAX_TARGETS);
+        targets = targets.into_iter().take(MAX_TARGETS).collect();
+        let targets = targets.into_boxed_slice();
         Self {
             targets,
             bound,
@@ -116,22 +122,60 @@ impl DispatchTargets {
     /// compared, because the snapshot cannot state what it pointed at before.
     #[must_use]
     pub fn redirected_since(&self, start: &Self) -> Vec<Target> {
-        self.targets
-            .iter()
-            .filter(|target| {
-                start
-                    .targets
-                    .iter()
-                    .any(|before| before.slot == target.slot && before.value != target.value)
-            })
-            .copied()
-            .collect()
+        let mut redirected = Vec::new();
+        let mut before = 0;
+        for target in &self.targets {
+            while start
+                .targets
+                .get(before)
+                .is_some_and(|candidate| candidate.slot() < target.slot())
+            {
+                before += 1;
+            }
+            if start.targets.get(before).is_some_and(|candidate| {
+                candidate.slot() == target.slot() && candidate.value() != target.value()
+            }) {
+                redirected.push(*target);
+            }
+        }
+        redirected
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{DispatchTargets, MAX_TARGETS, Target};
+
+    fn next(seed: &mut u64) -> u64 {
+        *seed ^= *seed << 13;
+        *seed ^= *seed >> 7;
+        *seed ^= *seed << 17;
+        *seed
+    }
+
+    fn generated(seed: &mut u64) -> DispatchTargets {
+        let mut targets = Vec::new();
+        for index in 0..128_u64 {
+            if next(seed).trailing_zeros() >= 2 {
+                continue;
+            }
+            targets.push(Target::new(index * 8, next(seed)));
+        }
+        DispatchTargets::new(targets, true)
+    }
+
+    fn reference_redirected(current: &DispatchTargets, start: &DispatchTargets) -> Vec<Target> {
+        current
+            .targets()
+            .iter()
+            .filter(|target| {
+                start.targets().iter().any(|candidate| {
+                    candidate.slot() == target.slot() && candidate.value() != target.value()
+                })
+            })
+            .copied()
+            .collect()
+    }
 
     fn bound(pairs: &[(u64, u64)]) -> DispatchTargets {
         DispatchTargets::new(
@@ -203,5 +247,29 @@ mod tests {
         assert!(bound(&[(0x1000, 0xa000)]).is_bound());
         let lazy = DispatchTargets::new(vec![Target::new(0x1000, 0xa000)], false);
         assert!(!lazy.is_bound());
+    }
+
+    #[test]
+    fn a_snapshot_releases_spare_input_capacity() {
+        let mut input = Vec::with_capacity(MAX_TARGETS * 8);
+        input.push(Target::new(0x1000, 0x2000));
+        let snapshot = DispatchTargets::new(input, true);
+        assert!(snapshot.retained_capacity() <= MAX_TARGETS);
+    }
+
+    #[test]
+    fn the_linear_dispatch_comparison_matches_the_reference_rule() {
+        let mut seed = 0xa54f_f53a_5f1d_36f1;
+        // Native tests take the full set. Miri interprets eight fixed cases.
+        let cases = if cfg!(miri) { 8 } else { 512 };
+        for case in 0..cases {
+            let start = generated(&mut seed);
+            let current = generated(&mut seed);
+            assert_eq!(
+                current.redirected_since(&start),
+                reference_redirected(&current, &start),
+                "the dispatch rule differs in case {case}"
+            );
+        }
     }
 }

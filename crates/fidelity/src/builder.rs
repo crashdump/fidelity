@@ -1,19 +1,52 @@
 use core::fmt;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 
 use fidelity_core::{Environment, Observation};
 use fidelity_detect::{Captured, Detectors};
 use fidelity_engine::{Hooks, Pending, Policy, State, Worker, now_unix_ms};
-use fidelity_types::{Action, Category, ExpectedIdentity, Finding, Platform, SignalStrength};
+use fidelity_types::{
+    Action, Category, CategorySet, Evidence, ExpectedIdentity, Finding, Outcome, Platform,
+    SignalStrength,
+};
 
 use crate::handle::Runtime;
-use crate::{Handle, StartError, claim_slot, release_slot, set_deny_until_full_scan};
+use crate::{Handle, StartError, claim_slot, set_deny_until_full_scan};
+
+/// One provisional claim on the process runtime slot.
+///
+/// The guard rolls back every process word unless a complete start commits
+/// it. This also releases the slot when a start panics and the host catches
+/// that panic.
+struct StartClaim {
+    committed: bool,
+}
+
+impl StartClaim {
+    fn acquire() -> Result<Self, StartError> {
+        if !claim_slot() {
+            return Err(StartError::AlreadyRunning);
+        }
+        Ok(Self { committed: false })
+    }
+
+    fn commit(mut self) {
+        self.committed = true;
+    }
+}
+
+impl Drop for StartClaim {
+    fn drop(&mut self) {
+        if !self.committed {
+            crate::abandon_start();
+        }
+    }
+}
 
 /// The host callback that the runtime invokes on a qualifying finding.
 ///
 /// The runtime moves the callback onto its worker and calls it from that one
 /// thread, so it needs no shared-reference bound.
-type Callback = Box<dyn FnMut(&Finding) + Send + 'static>;
+type Callback = Box<dyn FnMut(&Handle, &Finding) + Send + 'static>;
 
 /// Configures a Fidelity runtime, and starts it.
 ///
@@ -30,11 +63,12 @@ type Callback = Box<dyn FnMut(&Finding) + Send + 'static>;
 /// One runtime runs per process, so this example compiles without a run.
 ///
 /// ```no_run
-/// use fidelity::{Action, SignalStrength};
+/// use fidelity::{Action, Category, SignalStrength};
 ///
 /// let handle = fidelity::new()
 ///     .integrity(Action::Crash, SignalStrength::High)
 ///     .instrumentation(Action::Deny, SignalStrength::Medium)
+///     .require_complete_coverage(Category::Debugging)
 ///     .start()?;
 /// # Ok::<(), fidelity::StartError>(())
 /// ```
@@ -44,6 +78,7 @@ pub struct Builder {
     identity: Option<ExpectedIdentity>,
     callback: Option<Callback>,
     deny_until_full_scan: bool,
+    required_coverage: CategorySet,
 }
 
 impl fmt::Debug for Builder {
@@ -53,6 +88,7 @@ impl fmt::Debug for Builder {
             .field("identity", &self.identity)
             .field("callback", &self.callback.is_some())
             .field("deny_until_full_scan", &self.deny_until_full_scan)
+            .field("required_coverage", &self.required_coverage)
             .finish()
     }
 }
@@ -127,6 +163,23 @@ impl Builder {
         self
     }
 
+    /// Requires complete platform detector coverage for one category.
+    ///
+    /// Every current platform detector in the category must report `Clean`
+    /// or a non-health `Finding` during the initial scan. `Unsupported`,
+    /// `NotRun`, and detector health make the start fail.
+    ///
+    /// A category with no platform detector also fails. Thus, `UiAbuse`
+    /// always fails this requirement, because the host supplies that report.
+    ///
+    /// A new detector in this category becomes required automatically. Thus,
+    /// an upgrade cannot silently reduce the coverage that the host requires.
+    #[must_use]
+    pub fn require_complete_coverage(mut self, category: Category) -> Self {
+        self.required_coverage.insert(category);
+        self
+    }
+
     /// Supplies the callback that serves every category that selects
     /// [`Action::Callback`].
     ///
@@ -134,14 +187,18 @@ impl Builder {
     /// category. It never runs for a category with another action.
     ///
     /// The callback runs on the Fidelity worker, after the runtime latches
-    /// the state. Keep it short, because it delays the next scan. A host that
-    /// wants to work off the worker sends the finding to its own channel from
-    /// inside the callback: Fidelity owns no queue, so the host chooses the
-    /// depth and the overflow policy.
+    /// the state. The initial callback completes before `start()` returns.
+    /// Keep it short, because it delays the start or the next scan.
+    ///
+    /// The callback receives the handle and the finding. It may read the
+    /// snapshot, apply a host denial, or report UI abuse.
+    ///
+    /// A host can send the finding to its own channel from the callback.
+    /// Fidelity owns no callback queue, so the host selects its limits.
     #[must_use]
     pub fn on_finding<F>(mut self, callback: F) -> Self
     where
-        F: FnMut(&Finding) + Send + 'static,
+        F: FnMut(&Handle, &Finding) + Send + 'static,
     {
         self.callback = Some(Box::new(callback));
         self
@@ -159,22 +216,14 @@ impl Builder {
     pub fn start(self) -> Result<Handle, StartError> {
         // Step 1 claims the slot before anything else, so two concurrent
         // starts cannot both proceed.
-        if !claim_slot() {
-            return Err(StartError::AlreadyRunning);
-        }
+        let claim = StartClaim::acquire()?;
 
         match self.start_claimed() {
-            Ok(handle) => Ok(handle),
-            Err(error) => {
-                // A failed start leaves no process-wide trace, so a corrected
-                // retry starts from the same place the first call did. The
-                // initial scan runs before the worker exists, so it can latch
-                // a category that no handle ever explains.
-                set_deny_until_full_scan(false);
-                crate::clear_latched();
-                release_slot();
-                Err(error)
+            Ok(handle) => {
+                claim.commit();
+                Ok(handle)
             }
+            Err(error) => Err(error),
         }
     }
 
@@ -204,9 +253,8 @@ impl Builder {
         let environment = crate::backend::build()?;
 
         // Step 4 completes the initial scan. It runs the cheap detectors,
-        // records their outcomes, and latches every qualifying denial. It
-        // applies no callback and it stops no process, so `start()` returns
-        // first and the worker acts afterwards.
+        // records their outcomes, and latches every qualifying denial. The
+        // worker applies callbacks and stops after the handle exists.
         // A guarded constant needs the signer material, and a fresh read is
         // far too slow for a read path, so the value is captured once here.
         // A build that binds to an identity fails here when the material is
@@ -236,42 +284,111 @@ impl Builder {
         };
 
         let detectors = Detectors::new(self.identity, baseline, dispatch);
+        let outcomes = detectors.scan_cheap(&*environment, now_unix_ms());
+        let missing = missing_required_coverage(self.required_coverage, &outcomes);
+        if !missing.is_empty() {
+            return Err(StartError::RequiredCoverageUnavailable {
+                categories: missing,
+            });
+        }
         let state = Arc::new(Mutex::new(State::new(fidelity_detect::INVENTORY)));
         // The handle records a host report and the worker applies what only it
         // may apply, so both hold this queue.
         let pending = Arc::new(Pending::new());
-        let outcomes = detectors.scan_cheap(&*environment, now_unix_ms());
         let initial = fidelity_engine::record(&state, &self.policy, HOOKS, outcomes);
         // The handle applies the same policy to a host report, so it keeps a
         // copy. One policy is fixed at `start()` and never changes, so the two
         // cannot drift.
         let policy = self.policy.clone();
 
-        // Step 5 starts the worker, which runs until the process stops.
+        // Step 5 builds the handle before any callback can run.
+        let worker_state = Arc::clone(&state);
+        let worker_pending = Arc::clone(&pending);
+        let handle = Handle::new(Arc::new(Runtime::new(state, identity, policy, pending)));
+        let callback = bind_callback(self.callback, &handle);
         let worker = Worker::new(
-            Arc::clone(&state),
+            worker_state,
             self.policy,
             detectors,
             environment,
-            self.callback,
+            callback,
             HOOKS,
-            Arc::clone(&pending),
+            worker_pending,
         );
-        // The handle is built before the thread exists. The initial scan can
-        // qualify a callback or a `Crash`, and the lifecycle in
-        // `docs/plan/03-runtime-and-api.md` puts both after `start()` builds
-        // the handle. A worker that starts first races that construction, so a
-        // `Crash` could stop the process before any handle existed.
-        let handle = Handle::new(Arc::new(Runtime::new(state, identity, policy, pending)));
+
+        // Step 6 starts the worker and waits for every initial action.
+        let (ready_sender, ready_receiver) = mpsc::channel();
 
         std::thread::Builder::new()
             .name(String::from("fidelity"))
-            .spawn(move || worker.run(initial))
+            .spawn(move || worker.run(initial, &ready_sender))
             .map_err(|error| StartError::WorkerUnavailable {
                 reason: error.kind(),
             })?;
 
+        wait_for_initial_actions(&ready_receiver)?;
+
         Ok(handle)
+    }
+}
+
+/// Adds the runtime handle to the engine callback.
+fn bind_callback(callback: Option<Callback>, handle: &Handle) -> Option<fidelity_engine::Callback> {
+    callback.map(|mut callback| {
+        let callback_handle = handle.clone();
+        Box::new(move |finding: &Finding| callback(&callback_handle, finding))
+            as fidelity_engine::Callback
+    })
+}
+
+/// Waits until the worker applies every initial action.
+fn wait_for_initial_actions(ready: &mpsc::Receiver<()>) -> Result<(), StartError> {
+    ready
+        .recv()
+        .map_err(|_| StartError::WorkerStoppedDuringStart)
+}
+
+/// Finds each required category that lacks complete detector coverage.
+fn missing_required_coverage(
+    required: CategorySet,
+    outcomes: &[(fidelity_types::Detector, Outcome)],
+) -> CategorySet {
+    let mut missing = CategorySet::new();
+    for category in required {
+        let mut detectors = fidelity_detect::INVENTORY
+            .iter()
+            .copied()
+            .filter(|detector| detector.category() == category);
+        let Some(first) = detectors.next() else {
+            missing.insert(category);
+            continue;
+        };
+        if !detector_supplied_coverage(first, outcomes)
+            || detectors.any(|detector| !detector_supplied_coverage(detector, outcomes))
+        {
+            missing.insert(category);
+        }
+    }
+    missing
+}
+
+/// Reports whether one detector appears with real coverage.
+fn detector_supplied_coverage(
+    detector: fidelity_types::Detector,
+    outcomes: &[(fidelity_types::Detector, Outcome)],
+) -> bool {
+    outcomes
+        .iter()
+        .find(|(candidate, _)| *candidate == detector)
+        .is_some_and(|(_, outcome)| supplies_coverage(outcome))
+}
+
+/// Reports whether one detector supplied real coverage.
+fn supplies_coverage(outcome: &Outcome) -> bool {
+    match outcome {
+        Outcome::Clean => true,
+        Outcome::Finding(finding) => !matches!(finding.evidence(), Evidence::DetectorHealth { .. }),
+        Outcome::NotRun | Outcome::Unsupported { .. } => false,
     }
 }
 
@@ -346,17 +463,27 @@ pub(crate) const fn hooks() -> Hooks {
 
 #[cfg(test)]
 mod tests {
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+    use std::sync::{Arc, Mutex, mpsc};
+
     use fidelity_core::{
         Baseline, CodeIdentity, Device, Dispatch, Emulation, Environment, Identity, Injection,
         Lifecycle, Observation, PlatformTrust, Signer, Tracer,
     };
-    use fidelity_types::{Action, Choice, ExpectedIdentity, Platform, SignalStrength};
+    use fidelity_detect::{DISPATCH_TARGETS, INVENTORY, TRACER_PRESENT, UNACCOUNTED_CODE};
+    use fidelity_engine::{Pending, Policy, State};
+    use fidelity_types::{
+        Action, BoundedText, Category, CategorySet, Choice, Detector, Evidence, ExpectedIdentity,
+        Finding, Outcome, Platform, SignalStrength,
+    };
 
     use super::{
-        BINDS_IDENTITY, IDENTITY_UNREADABLE, NO_PLATFORM_IDENTITY, NO_SIGNER, resolve_material,
-        signer_material,
+        BINDS_IDENTITY, Callback, IDENTITY_UNREADABLE, NO_PLATFORM_IDENTITY, NO_SIGNER, StartClaim,
+        bind_callback, missing_required_coverage, resolve_material, signer_material,
+        wait_for_initial_actions,
     };
-    use crate::{StartError, exclusive_test};
+    use crate::handle::Runtime;
+    use crate::{Handle, StartError, exclusive_test};
 
     /// A probe that answers nothing, so every capability default reports.
     #[derive(Debug)]
@@ -401,6 +528,119 @@ mod tests {
         fn platform(&self) -> Platform {
             Platform::MacOs
         }
+    }
+
+    fn required(category: Category) -> CategorySet {
+        let mut categories = CategorySet::new();
+        categories.insert(category);
+        categories
+    }
+
+    #[test]
+    fn an_unsupported_required_detector_reports_absent_coverage() {
+        let outcomes = [(TRACER_PRESENT, Outcome::Unsupported { reason: "no API" })];
+        let missing = missing_required_coverage(required(Category::Debugging), &outcomes);
+        assert!(missing.contains(Category::Debugging));
+    }
+
+    #[test]
+    fn a_clean_required_detector_supplies_coverage() {
+        let outcomes = [(TRACER_PRESENT, Outcome::Clean)];
+        let missing = missing_required_coverage(required(Category::Debugging), &outcomes);
+        assert!(missing.is_empty());
+    }
+
+    #[test]
+    fn every_detector_in_a_required_category_must_supply_coverage() {
+        let outcomes = [
+            (UNACCOUNTED_CODE, Outcome::Unsupported { reason: "no API" }),
+            (DISPATCH_TARGETS, Outcome::Clean),
+        ];
+        let missing = missing_required_coverage(required(Category::Instrumentation), &outcomes);
+        assert!(missing.contains(Category::Instrumentation));
+    }
+
+    #[test]
+    fn an_omitted_required_detector_has_no_coverage() {
+        let outcomes = [(DISPATCH_TARGETS, Outcome::Clean)];
+        let missing = missing_required_coverage(required(Category::Instrumentation), &outcomes);
+        assert!(missing.contains(Category::Instrumentation));
+    }
+
+    #[test]
+    fn a_health_finding_does_not_supply_required_coverage() {
+        let health = Finding::new(
+            TRACER_PRESENT,
+            SignalStrength::Low,
+            Evidence::DetectorHealth {
+                detail: BoundedText::new("the tracer read failed"),
+            },
+            1,
+        );
+        let outcomes = [(TRACER_PRESENT, Outcome::Finding(health))];
+        let missing = missing_required_coverage(required(Category::Debugging), &outcomes);
+        assert!(missing.contains(Category::Debugging));
+    }
+
+    #[test]
+    fn a_category_with_no_platform_detector_has_no_required_coverage() {
+        let missing = missing_required_coverage(required(Category::UiAbuse), &[]);
+        assert!(missing.contains(Category::UiAbuse));
+    }
+
+    #[test]
+    fn an_unrequired_detector_does_not_block_the_start() {
+        let outcomes = [(TRACER_PRESENT, Outcome::Unsupported { reason: "no API" })];
+        let missing = missing_required_coverage(CategorySet::new(), &outcomes);
+        assert!(missing.is_empty());
+    }
+
+    #[test]
+    fn a_security_finding_supplies_required_coverage() {
+        let finding = Finding::new(
+            TRACER_PRESENT,
+            SignalStrength::Medium,
+            Evidence::TracerPresent {
+                detail: BoundedText::new("the tracer holds the process"),
+            },
+            1,
+        );
+        let outcomes = [(TRACER_PRESENT, Outcome::Finding(finding))];
+        let missing = missing_required_coverage(required(Category::Debugging), &outcomes);
+        assert!(missing.is_empty());
+    }
+
+    #[test]
+    fn a_requirement_reaches_only_its_category() {
+        let builder = crate::new().require_complete_coverage(Category::Virtualization);
+        assert!(builder.required_coverage.contains(Category::Virtualization));
+    }
+
+    #[test]
+    fn a_required_category_without_a_platform_detector_fails_the_start() {
+        let _guard = exclusive_test();
+        let failure = crate::new()
+            .require_complete_coverage(Category::UiAbuse)
+            .start()
+            .err();
+        let Some(StartError::RequiredCoverageUnavailable { categories }) = failure else {
+            panic!("the start must report absent platform coverage")
+        };
+        assert!(categories.contains(Category::UiAbuse));
+    }
+
+    #[test]
+    fn a_required_coverage_failure_releases_the_slot() {
+        let _guard = exclusive_test();
+        let first = crate::new()
+            .require_complete_coverage(Category::UiAbuse)
+            .start()
+            .err();
+        let second = crate::new()
+            .require_complete_coverage(Category::UiAbuse)
+            .start()
+            .err();
+        assert_eq!(first, second, "the slot did not return after the failure");
     }
 
     // The guarded-constant key. `resolve_material` holds the whole decision and
@@ -500,10 +740,48 @@ mod tests {
         let _guard = exclusive_test();
         let failure = crate::new()
             .ui_abuse(Action::Callback, SignalStrength::High)
-            .on_finding(|_| {})
+            .on_finding(|_, _| {})
             .start()
             .err();
         assert_ne!(failure, Some(StartError::MissingCallback));
+    }
+
+    #[test]
+    fn a_callback_receives_a_handle_that_can_deny() {
+        let _guard = exclusive_test();
+        let handle = Handle::new(Arc::new(Runtime::new(
+            Arc::new(Mutex::new(State::new(INVENTORY))),
+            Box::new([]),
+            Policy::new(),
+            Arc::new(Pending::new()),
+        )));
+        let callback: Callback = Box::new(|callback_handle, _| {
+            callback_handle.deny(Category::Integrity);
+        });
+        let Some(mut callback) = bind_callback(Some(callback), &handle) else {
+            panic!("the callback was absent");
+        };
+        let finding = Finding::new(
+            Detector::new(99, "test.callback", Category::Integrity),
+            SignalStrength::High,
+            Evidence::DetectorHealth {
+                detail: BoundedText::new("the callback test"),
+            },
+            1,
+        );
+        callback(&finding);
+
+        assert!(handle.ensure_allowed().is_err());
+    }
+
+    #[test]
+    fn a_closed_ready_channel_reports_an_early_worker_stop() {
+        let (ready_sender, ready_receiver) = mpsc::channel();
+        drop(ready_sender);
+        assert_eq!(
+            wait_for_initial_actions(&ready_receiver),
+            Err(StartError::WorkerStoppedDuringStart)
+        );
     }
 
     #[test]
@@ -550,6 +828,19 @@ mod tests {
     }
 
     #[test]
+    fn an_unwound_start_claim_releases_the_slot() {
+        let _guard = exclusive_test();
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let Ok(_claim) = StartClaim::acquire() else {
+                panic!("the test must claim the free slot")
+            };
+            panic!("the test start failed")
+        }));
+        assert!(result.is_err(), "the test start must fail");
+        assert!(StartClaim::acquire().is_ok());
+    }
+
+    #[test]
     fn a_released_slot_never_reports_a_singleton_conflict() {
         let _guard = exclusive_test();
         invalid().start().ok();
@@ -565,6 +856,18 @@ mod tests {
             !crate::denies_until_full_scan(),
             "a failed start must leave no process-wide trace"
         );
+    }
+
+    #[test]
+    fn a_failed_start_clears_a_stale_coverage_state() {
+        let _guard = exclusive_test();
+        crate::mark_full_scan_complete();
+        assert!(crate::full_scan_complete());
+
+        drop(invalid().start());
+
+        assert!(!crate::full_scan_complete());
+        assert!(!crate::wait_for_full_scan(std::time::Duration::ZERO));
     }
 
     #[test]

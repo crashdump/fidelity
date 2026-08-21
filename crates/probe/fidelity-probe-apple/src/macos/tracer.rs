@@ -1,7 +1,7 @@
 //! The tracer capability on macOS.
 //!
 //! iOS reads the same kernel state through the same interface, so the body
-//! lives in [`common::tracer`](crate::common::tracer) and this file binds it
+//! lives in [`common::tracer`] and this file binds it
 //! to the macOS environment.
 
 use fidelity_core::{Observation, Tracer, TracerState};

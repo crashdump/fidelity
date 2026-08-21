@@ -81,6 +81,47 @@ unsafe extern "C" {
     fn mach_port_deallocate(task: u32, name: u32) -> i32;
 }
 
+/// Reports whether one complete range belongs to one mapped region.
+#[must_use]
+pub(crate) fn mapped(address: u64, bytes: usize) -> bool {
+    let Ok(bytes) = u64::try_from(bytes) else {
+        return false;
+    };
+    if bytes == 0 {
+        return false;
+    }
+    let Some(end) = address.checked_add(bytes) else {
+        return false;
+    };
+
+    let mut found = address;
+    let mut size = 0;
+    let mut info = BasicInfo::default();
+    let mut count = VM_REGION_BASIC_INFO_COUNT_64;
+    let mut object = 0;
+    // SAFETY: each pointer refers to a live local with the kernel layout.
+    let result = unsafe {
+        mach_vm_region(
+            mach_task_self(),
+            &raw mut found,
+            &raw mut size,
+            VM_REGION_BASIC_INFO_64,
+            (&raw mut info).cast::<c_void>(),
+            &raw mut count,
+            &raw mut object,
+        )
+    };
+    if result == KERN_SUCCESS && object != 0 {
+        // SAFETY: the successful query moved this name into the task.
+        unsafe { mach_port_deallocate(mach_task_self(), object) };
+    }
+    result == KERN_SUCCESS
+        && found <= address
+        && found
+            .checked_add(size)
+            .is_some_and(|region_end| end <= region_end)
+}
+
 /// One executable region, as the kernel reports it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Region {
@@ -170,7 +211,19 @@ pub(crate) fn executable() -> Result<Vec<Region>, &'static str> {
 
 #[cfg(test)]
 mod tests {
-    use super::executable;
+    use super::{executable, mapped};
+
+    #[test]
+    fn the_kernel_confirms_a_live_code_byte() {
+        let address = mapped as *const () as usize as u64;
+        assert!(mapped(address, 1));
+    }
+
+    #[test]
+    fn an_empty_or_wrapped_range_is_never_mapped() {
+        assert!(!mapped(mapped as *const () as usize as u64, 0));
+        assert!(!mapped(u64::MAX, 2));
+    }
 
     #[test]
     fn the_walk_finds_the_executable_code_of_this_task() {

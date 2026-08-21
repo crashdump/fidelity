@@ -1,0 +1,72 @@
+name: fuzz
+
+on:
+  pull_request:
+  schedule:
+    - cron: "23 2 * * *"
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: "Seconds for each target. Use 7200 for a release candidate."
+        required: true
+        default: "7200"
+
+permissions:
+  contents: read
+
+env:
+  FUZZ_TOOLCHAIN: nightly-2026-06-14
+  CARGO_FUZZ_VERSION: 0.13.2
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - apk_zip
+          - apk_signing
+          - macho_signature
+          - macho_entitlements
+          - macho_dispatch
+          - macho_image
+          - elf_dynamic
+          - elf_relocations
+          - pe_imports
+          - pe_certificate
+          - smbios
+          - proc_maps
+          - bounded_text
+          - identity_inputs
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the fuzz toolchain
+        run: |
+          set -eu
+          rustup toolchain install "$FUZZ_TOOLCHAIN" --profile minimal
+          cargo +"$FUZZ_TOOLCHAIN" install cargo-fuzz --version "$CARGO_FUZZ_VERSION" --locked
+
+      - name: Run the pull request smoke test
+        if: github.event_name == 'pull_request'
+        run: cargo +"$FUZZ_TOOLCHAIN" fuzz run ${{ matrix.target }} fuzz/corpus/${{ matrix.target }} -- -runs=256
+
+      - name: Run the scheduled target
+        if: github.event_name == 'schedule'
+        run: cargo +"$FUZZ_TOOLCHAIN" fuzz run ${{ matrix.target }} fuzz/corpus/${{ matrix.target }} -- -max_total_time=1800
+
+      - name: Run the release candidate target
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          FUZZ_SECONDS: ${{ inputs.seconds }}
+        run: cargo +"$FUZZ_TOOLCHAIN" fuzz run ${{ matrix.target }} fuzz/corpus/${{ matrix.target }} -- "-max_total_time=$FUZZ_SECONDS"
+
+      - name: Keep the crash input
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-${{ matrix.target }}
+          path: fuzz/artifacts/${{ matrix.target }}/
+          if-no-files-found: ignore
+          retention-days: 14

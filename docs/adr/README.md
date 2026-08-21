@@ -10,6 +10,8 @@ Accepted decisions:
 - [ADR-0006: Make responses explicit and configurable](0006-configurable-responses.md)
 - [ADR-0007: Make the protected-operation check value-producing](0007-value-producing-check.md)
 - [ADR-0008: Keep every capability trait object safe](0008-object-safe-capability-traits.md)
+- [ADR-0009: Make start atomic](0009-atomic-start.md)
+- [ADR-0010: Keep Tauri access in Rust](0010-rust-only-tauri-adapter.md)
 
 ADR-0001's probe and detector separation, ADR-0002's strength model, and ADR-0006's response
 contract are v1 invariants. To change one, supersede the ADR and supply clean and hostile controls.

@@ -20,6 +20,8 @@
 #![forbid(unsafe_code)]
 
 pub mod apk;
+pub mod elf;
 pub mod macho;
+pub mod pe;
 pub mod procfs;
 pub mod smbios;

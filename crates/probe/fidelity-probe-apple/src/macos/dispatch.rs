@@ -1,7 +1,7 @@
 //! The dispatch capability on macOS.
 //!
 //! iOS reads the same table the same way, so the body lives in
-//! [`common::dispatch`](crate::common::dispatch) and this file binds it to the
+//! [`common::dispatch`] and this file binds it to the
 //! macOS environment.
 
 use fidelity_core::{Dispatch, DispatchTargets, Observation};

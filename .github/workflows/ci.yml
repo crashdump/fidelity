@@ -31,7 +31,29 @@ on:
 permissions:
   contents: read
 
+env:
+  FIDELITY_NIGHTLY: nightly-2026-06-14
+
 jobs:
+  supply-chain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the dependency policy tool
+        run: cargo install cargo-deny --version 0.19.0 --locked
+
+      - name: Check the workspace graph
+        run: cargo deny check advisories sources
+
+      - name: Check the Tauri graph
+        run: >-
+          cargo deny --manifest-path bindings/tauri-plugin-fidelity/Cargo.toml
+          check advisories sources -A unmaintained
+
+      - name: Check the fuzz graph
+        run: cargo deny --manifest-path fuzz/Cargo.toml check advisories sources
+
   gate:
     strategy:
       # One runner must not hide the answer that the other one gives.
@@ -59,8 +81,12 @@ jobs:
           # version of its own and the two cannot disagree.
           msrv=$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
           rustup toolchain install "$msrv" --profile minimal
+          adapter_msrv=$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' \
+            bindings/tauri-plugin-fidelity/Cargo.toml | head -1)
+          rustup toolchain install "$adapter_msrv" --profile minimal
           # The sanitizers build the standard library from source.
-          rustup toolchain install nightly --profile minimal --component rust-src
+          rustup toolchain install "$FIDELITY_NIGHTLY" --profile minimal \
+            --component rust-src --component miri
           # The harness states the target list, so this file holds no copy of
           # it. A target that is the host on one runner is a cross-target on
           # the other, and `rustup target add` on the host target succeeds and

@@ -73,11 +73,16 @@ pub const MAX_REGIONS: usize = 1024;
 /// `start()` captured.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CodeRegions {
-    regions: Vec<Region>,
+    regions: Box<[Region]>,
     truncated: bool,
 }
 
 impl CodeRegions {
+    #[cfg(test)]
+    fn retained_capacity(&self) -> usize {
+        self.regions.len()
+    }
+
     /// Creates a snapshot, and keeps [`MAX_REGIONS`] regions at most.
     ///
     /// The regions arrive in address order, and the snapshot keeps that order,
@@ -86,7 +91,8 @@ impl CodeRegions {
     pub fn new(mut regions: Vec<Region>) -> Self {
         regions.sort_unstable();
         let truncated = regions.len() > MAX_REGIONS;
-        regions.truncate(MAX_REGIONS);
+        regions = regions.into_iter().take(MAX_REGIONS).collect();
+        let regions = regions.into_boxed_slice();
         Self { regions, truncated }
     }
 
@@ -113,16 +119,25 @@ impl CodeRegions {
     /// nothing here.
     #[must_use]
     pub fn added_since(&self, earlier: &Self) -> Vec<Region> {
-        self.regions
-            .iter()
-            .filter(|region| {
-                !earlier
-                    .regions
-                    .iter()
-                    .any(|known| known.holds(region.start()))
-            })
-            .copied()
-            .collect()
+        let mut added = Vec::new();
+        let mut known = 0;
+        for region in &self.regions {
+            while earlier
+                .regions
+                .get(known)
+                .is_some_and(|candidate| candidate.end() <= region.start())
+            {
+                known += 1;
+            }
+            if !earlier
+                .regions
+                .get(known)
+                .is_some_and(|candidate| candidate.holds(region.start()))
+            {
+                added.push(*region);
+            }
+        }
+        added
     }
 
     /// The regions of `self` that `earlier` held, and held as not writable.
@@ -133,23 +148,77 @@ impl CodeRegions {
     /// mapped as read and execute, and that something has made writable since.
     #[must_use]
     pub fn now_writable_since(&self, earlier: &Self) -> Vec<Region> {
-        self.regions
-            .iter()
-            .filter(|region| region.writable)
-            .filter(|region| {
-                earlier
-                    .regions
-                    .iter()
-                    .any(|known| known.start == region.start && !known.writable)
-            })
-            .copied()
-            .collect()
+        let mut opened = Vec::new();
+        let mut known = 0;
+        for region in self.regions.iter().filter(|region| region.writable) {
+            while earlier
+                .regions
+                .get(known)
+                .is_some_and(|candidate| candidate.start() < region.start())
+            {
+                known += 1;
+            }
+            if earlier.regions.get(known).is_some_and(|candidate| {
+                candidate.start() == region.start() && !candidate.is_writable()
+            }) {
+                opened.push(*region);
+            }
+        }
+        opened
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{CodeRegions, MAX_REGIONS, Region};
+
+    fn next(seed: &mut u64) -> u64 {
+        *seed ^= *seed << 13;
+        *seed ^= *seed >> 7;
+        *seed ^= *seed << 17;
+        *seed
+    }
+
+    fn generated(seed: &mut u64) -> CodeRegions {
+        let mut regions = Vec::new();
+        for index in 0..64_u64 {
+            if next(seed).trailing_zeros() >= 2 {
+                continue;
+            }
+            let start = index * 0x1000;
+            let end = start + 1 + next(seed) % 0x800;
+            regions.push(Region::new(start, end, next(seed) & 1 == 1));
+        }
+        CodeRegions::new(regions)
+    }
+
+    fn reference_added(current: &CodeRegions, start: &CodeRegions) -> Vec<Region> {
+        current
+            .regions()
+            .iter()
+            .filter(|region| {
+                !start
+                    .regions()
+                    .iter()
+                    .any(|candidate| candidate.holds(region.start()))
+            })
+            .copied()
+            .collect()
+    }
+
+    fn reference_opened(current: &CodeRegions, start: &CodeRegions) -> Vec<Region> {
+        current
+            .regions()
+            .iter()
+            .filter(|region| {
+                region.is_writable()
+                    && start.regions().iter().any(|candidate| {
+                        candidate.start() == region.start() && !candidate.is_writable()
+                    })
+            })
+            .copied()
+            .collect()
+    }
 
     fn regions(pairs: &[(u64, u64)]) -> CodeRegions {
         CodeRegions::new(
@@ -242,6 +311,14 @@ mod tests {
     }
 
     #[test]
+    fn a_snapshot_releases_spare_input_capacity() {
+        let mut input = Vec::with_capacity(MAX_REGIONS * 8);
+        input.push(Region::new(0x1000, 0x2000, false));
+        let snapshot = CodeRegions::new(input);
+        assert!(snapshot.retained_capacity() <= MAX_REGIONS);
+    }
+
+    #[test]
     fn a_region_states_its_size() {
         assert_eq!(Region::new(0x1000, 0x3000, false).bytes(), 0x2000);
     }
@@ -271,5 +348,26 @@ mod tests {
                 .now_writable_since(&start)
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn the_linear_region_comparisons_match_the_reference_rules() {
+        let mut seed = 0x3c6e_f372_fe94_f82b;
+        // Native tests take the full set. Miri interprets eight fixed cases.
+        let cases = if cfg!(miri) { 8 } else { 512 };
+        for case in 0..cases {
+            let start = generated(&mut seed);
+            let current = generated(&mut seed);
+            assert_eq!(
+                current.added_since(&start),
+                reference_added(&current, &start),
+                "the added-region rule differs in case {case}"
+            );
+            assert_eq!(
+                current.now_writable_since(&start),
+                reference_opened(&current, &start),
+                "the writable-region rule differs in case {case}"
+            );
+        }
     }
 }

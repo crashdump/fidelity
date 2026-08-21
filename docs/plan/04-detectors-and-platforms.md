@@ -64,6 +64,11 @@ Integrity checks distinguish two baselines:
   [dispatch detector](#dispatch-targets) answers it. That detector is `Instrumentation`, not
   `Integrity`, because a redirected call is a hook.
 
+Each platform runs two boundary controls in addition to its clean and added-code controls. The
+first creates an executable page before `start()`, then adds write access. It must report
+`CodeMadeWritable` at `Medium`. The second creates 1025 executable regions with guard pages between
+them. The initial baseline must report `Unsupported`, because a snapshot keeps 1024 regions.
+
 ### Image identity tiers
 
 **Platform trust** needs no host input. The operating system reports whether the running image is
@@ -93,9 +98,11 @@ Android reads the certificate out of the archive that the process runs from, and
 `PackageManager`, because that interface needs a `Context` that a library cannot reach. Selecting
 that archive is exact, not close. Measured on Android 37 on 2026-08-10, a Chrome process maps 58
 archives, and two of them sit under `/data/app/`, so a search for the first one answers with the
-wrong file and a wrong archive gives a wrong identity with no error. The rule takes the archive
-whose install directory names the package that `/proc/self/cmdline` reports, and it reports a gap
-when none does. An instrumented test compares the result against `PackageManager`, because the
+wrong file and a wrong archive gives a wrong identity with no error. The rule first finds the
+loaded image that holds Fidelity. It then selects the archive under the same install root. This
+rule replaces the process name. Thus, a private process and a global process select the same
+archive. A direct archive image names its own archive. A system application outside `/data/app/`
+remains a gap. An instrumented test compares the result against `PackageManager`, because the
 route only holds while the two agree.
 
 Windows holds a trap of the same kind, and the name is what sets it. The value that Windows tooling
@@ -509,6 +516,14 @@ This category has no capability and no platform row, and the coverage matrix in
 no operating system takes part.
 
 ## Supported targets
+
+Revalidated on 2026-08-21 against the
+[Apple security release list](https://support.apple.com/en-asia/100100), the
+[Android bulletins](https://source.android.com/docs/security/bulletin/asb-overview), the
+[Windows lifecycle](https://learn.microsoft.com/lifecycle/products/windows-11-home-and-pro), and
+the [Ubuntu lifecycle](https://ubuntu.com/about/release-cycle). Google Play requires
+[target API 36](https://developer.android.com/google/play/requirements/target-sdk) for new app
+submissions after 2026-08-31.
 
 The v1 floor is:
 

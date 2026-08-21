@@ -109,6 +109,41 @@ pub fn package_archive<'a>(text: &'a str, package: &str) -> Option<&'a str> {
     })
 }
 
+/// The application archive that shares an install root with one loaded image.
+#[must_use]
+pub fn package_archive_for_image<'a>(text: &'a str, image: &'a str) -> Option<&'a str> {
+    if let Some(at) = image.find(".apk!") {
+        return image.get(..at.checked_add(4)?);
+    }
+
+    let root = install_root(image)?;
+    text.lines().find_map(|line| {
+        let path = path_of(line)?;
+        if path.starts_with(root) && path.ends_with(ARCHIVE) {
+            Some(path)
+        } else if path.starts_with(root) {
+            let at = path.find(".apk!")?;
+            path.get(..at.checked_add(4)?)
+        } else {
+            None
+        }
+    })
+}
+
+/// The `/data/app/` root that one loaded image belongs to.
+fn install_root(path: &str) -> Option<&str> {
+    let rest = path.strip_prefix(INSTALLED)?;
+    let first = rest.find('/')?;
+    let after_first = first.checked_add(1)?;
+    let second = rest.get(after_first..)?.find('/')?;
+    let end = INSTALLED
+        .len()
+        .checked_add(after_first)?
+        .checked_add(second)?
+        .checked_add(1)?;
+    path.get(..end)
+}
+
 /// Reports whether one directory of a path is the package and its suffix.
 ///
 /// Android writes `<package>-<random>`, so the comparison takes the whole
@@ -404,6 +439,28 @@ mod tests {
     #[test]
     fn an_empty_package_reports_nothing() {
         assert_eq!(super::package_archive(ANDROID_APP, ""), None);
+    }
+
+    #[test]
+    fn an_image_selects_the_archive_from_its_install_root() {
+        let text = "7f0-7f1 r--p 0 fe:02 1 /data/app/~~a/com.example-b/base.apk\n\
+                    8f0-8f1 r-xp 0 fe:02 2 /data/app/~~a/com.other-c/base.apk\n";
+        let image = "/data/app/~~a/com.example-b/lib/arm64/libhost.so";
+        assert_eq!(
+            super::package_archive_for_image(text, image),
+            Some("/data/app/~~a/com.example-b/base.apk")
+        );
+    }
+
+    #[test]
+    fn an_image_loaded_from_an_archive_selects_that_archive() {
+        let text = "7f0-7f1 r-xp 0 fe:02 1 \
+                    /data/app/~~a/com.example-b/base.apk!/lib/arm64/libhost.so\n";
+        let image = "/data/app/~~a/com.example-b/base.apk!/lib/arm64/libhost.so";
+        assert_eq!(
+            super::package_archive_for_image(text, image),
+            Some("/data/app/~~a/com.example-b/base.apk")
+        );
     }
 
     #[test]

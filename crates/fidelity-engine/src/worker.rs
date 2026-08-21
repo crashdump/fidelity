@@ -1,4 +1,5 @@
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -63,10 +64,9 @@ pub fn now_unix_ms() -> u64 {
 
 /// Records scan outcomes, and latches every qualifying denial.
 ///
-/// The caller applies the returned actions afterwards. The synchronous initial
-/// scan uses this and leaves the actions to the worker, so `start()` returns
-/// before a callback runs and before a `Crash` stops the process. A `Deny`
-/// latch is active as soon as the call returns.
+/// The caller applies the returned actions afterwards. The initial scan uses
+/// this before the worker applies its actions. `start()` waits for that work.
+/// A `Deny` latch is active as soon as this call returns.
 ///
 /// The engine latch and the process-wide latch are written under one lock, so
 /// the two never disagree. A host that sees a denial always reads a snapshot
@@ -80,7 +80,6 @@ pub fn record(
     let mut qualified = Vec::new();
     {
         let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
-        let mut denied = Vec::new();
         for (detector, outcome) in outcomes {
             let Some(finding) = state.record(detector, outcome) else {
                 continue;
@@ -96,24 +95,17 @@ pub fn record(
                 "a detector reported a finding that reaches its threshold"
             );
             if action == Action::Deny {
+                // The process word is the latch linearization point.
+                // `snapshot()` waits for this lock, so it cannot return the
+                // engine state until the state contains the same category.
+                (hooks.latch)(finding.category());
                 state.latch(finding.category());
-                denied.push(finding.category());
                 diagnostic!(
                     category = ?finding.category(),
                     "the runtime latched a permanent denial, and a latch never clears"
                 );
             }
             qualified.push((finding, action));
-        }
-
-        // Both latches are written while this lock is held, so no reader ever
-        // sees one without the other. `snapshot()` takes this same lock, and
-        // `ensure_allowed()` reads the process-wide word alone: a reader that
-        // finds that word clear cannot reach the state until this scope ends.
-        // The hook writes one atomic word and takes no lock of its own, so it
-        // is safe to call here.
-        for category in denied {
-            (hooks.latch)(category);
         }
     }
 
@@ -186,9 +178,12 @@ impl Worker {
     /// Applies the actions of the initial scan, then runs until the process
     /// stops.
     ///
-    /// The caller runs this on the worker thread. It never returns, except
-    /// when a `Crash` action stops the process.
-    pub fn run(mut self, initial: Vec<(Finding, Action)>) {
+    /// The caller runs this on the worker thread. It reports readiness after
+    /// every initial action completes.
+    ///
+    /// The method returns when the start caller stops before readiness. A
+    /// `Crash` action stops the process.
+    pub fn run(mut self, initial: Vec<(Finding, Action)>, ready: &Sender<()>) {
         // The platform prepares this thread before it does any work. Apple
         // gives it a quality of service, and Android attaches it to the JVM.
         // Both apply to the calling thread, so neither can run at `start()`.
@@ -204,10 +199,13 @@ impl Worker {
         drop(setup);
 
         // `start()` recorded the initial outcomes and latched every qualifying
-        // denial before it returned. The worker applies the remaining actions
-        // here, so a `Crash` stops the process immediately after the host
-        // holds a handle.
+        // denial. The worker applies the remaining actions here. The start
+        // caller waits for the readiness report below.
         self.dispatch(initial);
+
+        if ready.send(()).is_err() {
+            return;
+        }
 
         diagnostic!(
             cycle_ms = self.cycle.as_millis(),
@@ -241,7 +239,11 @@ impl Worker {
     /// describes the environment, so the two never mix.
     #[must_use]
     pub fn prepare(&self) -> WorkerSetup {
-        self.environment.prepare_worker()
+        catch_unwind(AssertUnwindSafe(|| self.environment.prepare_worker())).unwrap_or_else(|_| {
+            WorkerSetup::Failed {
+                detail: BoundedText::new("the platform worker setup panicked"),
+            }
+        })
     }
 
     /// Runs one cycle, for a test that must not loop.
@@ -261,7 +263,10 @@ impl Worker {
     /// Applies actions that a caller already recorded and latched.
     ///
     /// The worker holds no lock here, so a callback may read the state.
-    fn dispatch(&mut self, qualified: Vec<(Finding, Action)>) {
+    fn dispatch<I>(&mut self, qualified: I)
+    where
+        I: IntoIterator<Item = (Finding, Action)>,
+    {
         for (finding, action) in qualified {
             match action {
                 // A denial latched before this point, so both cases are done.
@@ -327,9 +332,12 @@ impl Worker {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+    use std::sync::mpsc;
     use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
     use std::time::Duration;
+    use std::{env, process::Command};
 
     use fidelity_core::{
         Baseline, Device, Dispatch, Emulation, Environment, Identity, IdentityMatch, Injection,
@@ -340,11 +348,11 @@ mod tests {
     };
     use fidelity_testkit::FakeEnvironment;
     use fidelity_types::{
-        Action, BoundedText, Category, Choice, CodeRequirement, ExpectedIdentity, IdentityError,
-        Outcome, Platform, SignalStrength,
+        Action, BoundedText, Category, Choice, CodeRequirement, Evidence, ExpectedIdentity,
+        Finding, IdentityError, Outcome, Platform, SignalStrength,
     };
 
-    use super::{Hooks, Worker};
+    use super::{Hooks, Worker, record};
     use crate::{Pending, Policy, State};
 
     fn locked(state: &Arc<Mutex<State>>) -> MutexGuard<'_, State> {
@@ -382,6 +390,43 @@ mod tests {
             Arc::new(Pending::new()),
         )
         .with_cycle(Duration::from_millis(1))
+    }
+
+    /// An environment whose worker setup panics.
+    struct PanickingLifecycle;
+
+    impl Lifecycle for PanickingLifecycle {
+        fn prepare_worker(&self) -> WorkerSetup {
+            panic!("the lifecycle probe broke")
+        }
+    }
+    impl Baseline for PanickingLifecycle {}
+    impl Device for PanickingLifecycle {}
+    impl Dispatch for PanickingLifecycle {}
+    impl Emulation for PanickingLifecycle {}
+    impl Identity for PanickingLifecycle {}
+    impl Injection for PanickingLifecycle {}
+    impl Tracer for PanickingLifecycle {}
+
+    impl Environment for PanickingLifecycle {
+        fn platform(&self) -> Platform {
+            Platform::Linux
+        }
+    }
+
+    #[test]
+    fn a_lifecycle_panic_degrades_the_worker_and_never_stops_it() {
+        let state = Arc::new(Mutex::new(State::new(INVENTORY)));
+        let worker = Worker::new(
+            state,
+            Policy::new(),
+            Detectors::new(None, Captured::Unsupported, Captured::Unsupported),
+            Box::new(PanickingLifecycle),
+            None,
+            Hooks::detached(),
+            Arc::new(Pending::new()),
+        );
+        assert!(matches!(worker.prepare(), WorkerSetup::Failed { .. }));
     }
 
     #[test]
@@ -446,6 +491,44 @@ mod tests {
     }
 
     #[test]
+    fn a_failed_process_latch_never_leaves_the_engine_ahead() {
+        fn broken_latch(_category: Category) {
+            panic!("the process latch failed")
+        }
+
+        let state = Arc::new(Mutex::new(State::new(INVENTORY)));
+        let mut policy = Policy::new();
+        policy.set(Category::Integrity, Action::Deny, SignalStrength::High);
+        let finding = Finding::new(
+            PLATFORM_TRUST,
+            SignalStrength::High,
+            Evidence::ImageUntrusted {
+                detail: BoundedText::new("the test image has no trust"),
+            },
+            0,
+        );
+        let hooks = Hooks {
+            latch: broken_latch,
+            full_scan_complete: || {},
+        };
+
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            drop(record(
+                &state,
+                &policy,
+                hooks,
+                vec![(PLATFORM_TRUST, Outcome::Finding(finding))],
+            ));
+        }));
+
+        assert!(result.is_err(), "the test hook must fail");
+        assert!(
+            locked(&state).latched().is_empty(),
+            "the engine latch must not lead the process latch"
+        );
+    }
+
+    #[test]
     fn a_finding_below_the_threshold_latches_nothing() {
         // The platform-trust rejection is `Medium`, so a `High` threshold
         // leaves it below the line.
@@ -502,6 +585,87 @@ mod tests {
             });
         assert!(recorded, "a callback panic records a health finding");
         Ok(())
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "the production worker runs until the process stops")]
+    fn the_initial_callback_completes_before_the_worker_reports_ready() {
+        let state = Arc::new(Mutex::new(State::new(INVENTORY)));
+        let callback_done = Arc::new(AtomicBool::new(false));
+        let callback_flag = Arc::clone(&callback_done);
+        let worker = Worker::new(
+            Arc::clone(&state),
+            Policy::new(),
+            Detectors::new(None, Captured::Unsupported, Captured::Unsupported),
+            Box::new(FakeEnvironment::new()),
+            Some(Box::new(move |_| {
+                callback_flag.store(true, Ordering::Release);
+            })),
+            Hooks::detached(),
+            Arc::new(Pending::new()),
+        );
+        let finding = Finding::new(
+            EXPECTED_IDENTITY,
+            SignalStrength::High,
+            Evidence::UnexpectedIdentity {
+                detail: BoundedText::new("the initial image differs"),
+            },
+            1,
+        );
+        let (ready_sender, ready_receiver) = mpsc::channel();
+        std::thread::spawn(move || {
+            worker.run(vec![(finding, Action::Callback)], &ready_sender);
+        });
+
+        let ready = ready_receiver.recv_timeout(Duration::from_secs(1));
+        assert!(
+            ready.is_ok() && callback_done.load(Ordering::Acquire),
+            "the worker reported ready before the callback completed"
+        );
+    }
+
+    const INITIAL_CRASH_CHILD: &str = "FIDELITY_INITIAL_CRASH_CHILD";
+
+    #[test]
+    #[cfg_attr(miri, ignore = "Miri cannot start a child process")]
+    fn an_initial_crash_stops_before_readiness() {
+        if env::var_os(INITIAL_CRASH_CHILD).is_some() {
+            let state = Arc::new(Mutex::new(State::new(INVENTORY)));
+            let worker = worker(
+                &state,
+                Policy::new(),
+                FakeEnvironment::new(),
+                None,
+                Hooks::detached(),
+            );
+            let finding = Finding::new(
+                EXPECTED_IDENTITY,
+                SignalStrength::High,
+                Evidence::UnexpectedIdentity {
+                    detail: BoundedText::new("the initial image differs"),
+                },
+                1,
+            );
+            let (ready_sender, ready_receiver) = mpsc::channel();
+            let _ready_receiver = ready_receiver;
+            worker.run(vec![(finding, Action::Crash)], &ready_sender);
+            panic!("the initial Crash returned");
+        }
+
+        let Ok(current_test) = env::current_exe() else {
+            panic!("the current test path was unavailable");
+        };
+        let Ok(output) = Command::new(current_test)
+            .arg("--exact")
+            .arg("worker::tests::an_initial_crash_stops_before_readiness")
+            .arg("--nocapture")
+            .env(INITIAL_CRASH_CHILD, "1")
+            .output()
+        else {
+            panic!("the crash child did not start");
+        };
+
+        assert!(!output.status.success(), "the initial Crash returned");
     }
 
     #[test]

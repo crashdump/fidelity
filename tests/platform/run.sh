@@ -62,8 +62,9 @@ rm -f "$OUT"/.killed-* "$OUT"/.finished-*
 
 # Writes one row, to the record and to the terminal.
 note() {
-    printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" >> "$RECORD"
-    printf '%-8s %-26s %-8s %s\n' "$1" "$2" "$3" "$4"
+    detail=$(printf '%s' "$4" | sed 's/[[:space:]]*$//')
+    printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$detail" >> "$RECORD"
+    printf '%-8s %-26s %-8s %s\n' "$1" "$2" "$3" "$detail"
 }
 
 # What one control answered, in one line. A tab in it would break the record.
@@ -91,7 +92,7 @@ answer() {
         return
     fi
     grep -v '^[[:space:]]*$' "$file" 2>/dev/null | tail -1 | tr -d '\t' |
-        sed "s|$ROOT/||g" | cut -c1-160
+        sed "s|$ROOT/||g" | cut -c1-160 | sed 's/[[:space:]]*$//'
 }
 
 # The longest one control may take. A control that hangs must fail and say so,
@@ -218,18 +219,20 @@ printf '%-8s %-26s %-8s %s\n' system control result detail
 
 # ---------------------------------------------------------------- the toolchain
 
-# `cargo doc` reports a broken link as a warning and exits zero, so the gate is
-# the absence of a warning and not the exit status.
+# Rustdoc reports a broken link as a warning, so warnings fail this gate. The
+# private-item pass also checks links inside platform seams.
 rustdoc() {
-    output=$(cargo doc --workspace --no-deps 2>&1)
-    printf '%s\n' "$output"
-    ! printf '%s\n' "$output" | grep -q '^warning'
+    RUSTDOCFLAGS=-Dwarnings cargo doc --workspace --all-features \
+        --document-private-items --no-deps --locked
 }
 
 # `--all-features` reaches the optional `serde` surface. A platform is never a
 # feature, so this enables no platform code and hides no target behind a flag.
 run host workspace-tests cargo test --workspace --all-features
+run host package-contract "$ROOT/tests/package.sh"
 run host workspace-lints cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+run host fuzz-lints cargo clippy --manifest-path "$ROOT/fuzz/Cargo.toml" \
+    --all-targets --locked -- -D warnings
 
 # The default build is what a host gets, and it is the only build that resolves
 # to no external crate. Every row above enables both features, so nothing lints
@@ -237,7 +240,15 @@ run host workspace-lints cargo clippy --workspace --all-targets --all-features -
 # the feature is off, and that is exactly the arm this row compiles.
 run host workspace-default-lints cargo clippy --workspace --all-targets --locked -- -D warnings
 
-run host workspace-format cargo fmt --check
+# The adapter and the fuzz targets have independent workspaces. One format row
+# covers all three workspaces.
+format() {
+    cargo fmt --check || return 1
+    cargo fmt --manifest-path \
+        "$ROOT/bindings/tauri-plugin-fidelity/Cargo.toml" -- --check || return 1
+    cargo fmt --manifest-path "$ROOT/fuzz/Cargo.toml" -- --check
+}
+run host workspace-format format
 run host workspace-rustdoc rustdoc
 for target in $TARGETS; do
     run host "cross-$target" cargo check --workspace --target "$target"
@@ -408,6 +419,17 @@ if [ "$(uname -s)" = Darwin ]; then
     }
     baseline_hostile() { late DYLD_INSERT_LIBRARIES="$OUT/delayed.dylib"; }
     baseline_clean() { late DYLD_INSERT_LIBRARIES=; }
+
+    baseline_boundary_macos() {
+        cargo build --quiet --example baseline-boundaries -p fidelity || return 1
+        clang -dynamiclib -o "$OUT/baseline-boundaries.dylib" \
+            "$ROOT/tests/platform/controls/baseline-boundaries.c" || return 1
+        env FIDELITY_BASELINE_BOUNDARY="$1" \
+            DYLD_INSERT_LIBRARIES="$OUT/baseline-boundaries.dylib" \
+            "$ROOT/target/debug/examples/baseline-boundaries" "$1"
+    }
+    baseline_writable_macos() { baseline_boundary_macos writable; }
+    baseline_limit_macos() { baseline_boundary_macos limit; }
 
     # The tracer set. `lldb -b` runs the whole program under a debugger, which
     # the initial scan finds, and `lldb -p` attaches to a process that already
@@ -586,6 +608,8 @@ if [ "$(uname -s)" = Darwin ]; then
     run macOS identity-pinned-other-macos identity_pinned_other_macos
     run macOS baseline-hostile baseline_hostile
     refute macOS baseline-clean 'no code arrived after start' baseline_clean
+    run macOS baseline-writable-macos baseline_writable_macos
+    run macOS baseline-limit-macos baseline_limit_macos
     run macOS tracer-clean tracer_clean
     run macOS tracer-at-start tracer_at_start
     run macOS tracer-attaches tracer_attaches
@@ -601,6 +625,7 @@ else
         identity-adhoc-macos identity-clean-macos \
         identity-repackaged-macos identity-pinned-other-macos \
         baseline-hostile baseline-clean \
+        baseline-writable-macos baseline-limit-macos \
         tracer-clean tracer-at-start tracer-attaches resume-after-freeze \
         dispatch-hostile-macos dispatch-clean-macos \
         plugin-load legitimate-plugin legitimate-cached; do
@@ -714,6 +739,19 @@ if [ -n "$SIMULATOR" ]; then
     }
     baseline_clean_ios() { late_ios SIMCTL_CHILD_DYLD_INSERT_LIBRARIES=; }
 
+    baseline_boundary_ios() {
+        sdk=$(xcrun --sdk iphonesimulator --show-sdk-path) || return 1
+        clang -dynamiclib -target arm64-apple-ios17.0-simulator -isysroot "$sdk" \
+            -o "$OUT/baseline-boundaries-ios.dylib" \
+            "$ROOT/tests/platform/controls/baseline-boundaries.c" || return 1
+        binary=$(sim_build baseline-boundaries) || return 1
+        env SIMCTL_CHILD_FIDELITY_BASELINE_BOUNDARY="$1" \
+            SIMCTL_CHILD_DYLD_INSERT_LIBRARIES="$OUT/baseline-boundaries-ios.dylib" \
+            xcrun simctl spawn "$SIMULATOR" "$binary" "$1"
+    }
+    baseline_writable_ios() { baseline_boundary_ios writable; }
+    baseline_limit_ios() { baseline_boundary_ios limit; }
+
     run iOS ios-probe-tests ios test -p fidelity-probe-apple
     run iOS cost-ios ios run --release --quiet --example cost -p fidelity-probe-apple
     run iOS identity-clean-ios identity_clean_ios
@@ -727,12 +765,15 @@ if [ -n "$SIMULATOR" ]; then
         dispatch_clean_ios
     run iOS baseline-hostile-ios baseline_hostile_ios
     refute iOS baseline-clean-ios 'no code arrived after start' baseline_clean_ios
+    run iOS baseline-writable-ios baseline_writable_ios
+    run iOS baseline-limit-ios baseline_limit_ios
 else
     for control in ios-probe-tests cost-ios \
         identity-clean-ios identity-pinned-team-ios \
         tracer-clean-ios tracer-at-start-ios tracer-attaches-ios \
         resume-after-freeze-ios dispatch-hostile-ios dispatch-clean-ios \
-        baseline-hostile-ios baseline-clean-ios; do
+        baseline-hostile-ios baseline-clean-ios \
+        baseline-writable-ios baseline-limit-ios; do
         skip iOS "$control" \
             "no simulator is booted: xcrun simctl boot \"iPhone 16 Pro\""
     done
@@ -797,6 +838,16 @@ if [ -n "$LINUX_HOW" ]; then
     baseline_hostile_linux() { linux_late /tmp/delayed.so; }
     baseline_clean_linux() { linux_late ''; }
 
+    baseline_boundary_linux() {
+        linux "cc -shared -fPIC -o /tmp/baseline-boundaries.so \
+                tests/platform/controls/baseline-boundaries.c -lpthread &&
+            cargo build --quiet --example baseline-boundaries -p fidelity &&
+            FIDELITY_BASELINE_BOUNDARY=$1 LD_PRELOAD=/tmp/baseline-boundaries.so \
+                /var/tmp/target/debug/examples/baseline-boundaries $1"
+    }
+    baseline_writable_linux() { baseline_boundary_linux writable; }
+    baseline_limit_linux() { baseline_boundary_linux limit; }
+
     # The dispatch pair. `hook.c`, with its shared walk in `dispatch.h`,
     # rewrites one entry of the main image's dispatch table so a call reaches
     # another function that already exists. It maps no new executable region,
@@ -843,6 +894,8 @@ if [ -n "$LINUX_HOW" ]; then
     refute Linux dispatch-clean-linux 'no dispatch target moved after start' dispatch_clean_linux
     run Linux baseline-hostile-linux baseline_hostile_linux
     refute Linux baseline-clean-linux 'no code arrived after start' baseline_clean_linux
+    run Linux baseline-writable-linux baseline_writable_linux
+    run Linux baseline-limit-linux baseline_limit_linux
     # The same region counts. Linux holds no shared cache, so a system library
     # and a plugin each add one mapping, and the legitimate load reports.
     PLUG='printf "int plugin_entry(void){return 7;}\n" > /tmp/plug.c &&
@@ -965,6 +1018,7 @@ else
     for control in linux-probe-tests cost-linux inject-clean inject-hostile \
         dispatch-hostile-linux dispatch-clean-linux \
         baseline-hostile-linux baseline-clean-linux \
+        baseline-writable-linux baseline-limit-linux \
         identity-clean-linux identity-repackaged-linux verity-linux \
         tracer-clean-linux tracer-at-start-linux tracer-attaches-linux \
         plugin-load-linux legitimate-plugin-linux machine-guest-linux \
@@ -1113,6 +1167,16 @@ if [ -n "$WINDOWS_HOW" ]; then
             target/debug/examples/late.exe'
     }
 
+    # `baseline-boundaries-windows.c` owns both Windows memory subjects.
+    baseline_boundary_windows() {
+        windows "cargo build --quiet --example baseline-boundaries -p fidelity &&
+            sh tests/platform/controls/build-control.sh baseline-boundaries-windows &&
+            target/platform/baseline-boundaries-windows.exe $1 \
+                \"\$(cygpath -w target/debug/examples/baseline-boundaries.exe) $1\""
+    }
+    baseline_writable_windows() { baseline_boundary_windows writable; }
+    baseline_limit_windows() { baseline_boundary_windows limit; }
+
     # The dispatch pair. `iat-hook-windows.c` redirects one import address table
     # entry of the subject after start, to an address that another entry already
     # holds. It maps no new region, so the runtime baseline reports clean and
@@ -1234,6 +1298,8 @@ takes the guest: tests/platform/controls/vm.sh windows start"
     run Windows baseline-hostile-windows baseline_hostile_windows
     refute Windows baseline-clean-windows 'no code arrived after start' \
         baseline_clean_windows
+    run Windows baseline-writable-windows baseline_writable_windows
+    run Windows baseline-limit-windows baseline_limit_windows
     run Windows tracer-clean-windows tracer_clean_windows
     run Windows tracer-at-start-windows tracer_at_start_windows
     run Windows tracer-attaches-windows tracer_attaches_windows
@@ -1262,6 +1328,7 @@ tests/platform/controls/vm.sh windows start"
         inject-clean-windows inject-hostile-windows \
         dispatch-hostile-windows dispatch-hidden-windows dispatch-clean-windows \
         baseline-hostile-windows baseline-clean-windows \
+        baseline-writable-windows baseline-limit-windows \
         tracer-clean-windows tracer-at-start-windows tracer-attaches-windows \
         cost-windows-x86 inject-emulated-x86 baseline-clean-x86-windows \
         tracer-clean-x86-windows machine-guest-windows; do
@@ -1285,6 +1352,7 @@ ANDROID_CONTROLS="android-probe-tests cost-android android-instrumented
     android-repackage tracer-clean-android tracer-at-start-android
     tracer-attaches-android resume-after-freeze-android
     baseline-clean-android baseline-hostile-android
+    baseline-writable-android baseline-limit-android
     inject-clean-android inject-hostile-android
     dispatch-clean-android dispatch-hostile-android machine-emulator-android"
 
@@ -1380,6 +1448,16 @@ else
     }
     baseline_clean_android() { android_late ''; }
 
+    baseline_boundary_android() {
+        android_example baseline-boundaries baseline-boundaries &&
+            android_agent baseline-boundaries &&
+            adb shell "FIDELITY_BASELINE_BOUNDARY=$1 \
+                LD_PRELOAD=/data/local/tmp/baseline-boundaries.so \
+                /data/local/tmp/baseline-boundaries $1"
+    }
+    baseline_writable_android() { baseline_boundary_android writable; }
+    baseline_limit_android() { baseline_boundary_android limit; }
+
     inject_clean_android() {
         android_example inject inject &&
             adb shell /data/local/tmp/inject | grep 'unaccounted_code: clean'
@@ -1428,6 +1506,8 @@ else
     # answer rather than the status, and Linux and iOS take the same route.
     refute Android baseline-clean-android 'no code arrived after start' baseline_clean_android
     run Android baseline-hostile-android baseline_hostile_android
+    run Android baseline-writable-android baseline_writable_android
+    run Android baseline-limit-android baseline_limit_android
     run Android inject-clean-android inject_clean_android
     run Android inject-hostile-android inject_hostile_android
     run Android dispatch-hostile-android dispatch_hostile_android

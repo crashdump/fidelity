@@ -160,6 +160,7 @@ fidelity::Builder  pub fn expected_identity(mut self, identity: ExpectedIdentity
 fidelity::Builder  pub fn instrumentation(mut self, action: Action, threshold: SignalStrength) -> Self
 fidelity::Builder  pub fn integrity(mut self, action: Action, threshold: SignalStrength) -> Self
 fidelity::Builder  pub fn on_finding<F>(mut self, callback: F) -> Self
+fidelity::Builder  pub fn require_complete_coverage(mut self, category: Category) -> Self
 fidelity::Builder  pub fn start(self) -> Result<Handle, StartError>
 fidelity::Builder  pub fn ui_abuse(mut self, action: Action, threshold: SignalStrength) -> Self
 fidelity::Builder  pub fn virtualization(mut self, action: Action, threshold: SignalStrength) -> Self
@@ -173,11 +174,14 @@ fidelity::Handle  pub fn ensure_allowed(&self) -> Result<(), Denied>
 fidelity::Handle  pub fn first_full_scan_complete(&self) -> bool
 fidelity::Handle  pub fn report_ui_abuse(&self, observation: UiObservation)
 fidelity::Handle  pub fn snapshot(&self) -> Snapshot
+fidelity::Handle  pub fn wait_for_first_full_scan(&self, timeout: Duration) -> bool
 fidelity::Secret  pub fn as_str(&self) -> &str
 fidelity::StartError  variant AlreadyRunning
 fidelity::StartError  variant IdentityBindingUnavailable
 fidelity::StartError  variant MissingCallback
 fidelity::StartError  variant MissingExpectedIdentity
 fidelity::StartError  variant PlatformUnavailable
+fidelity::StartError  variant RequiredCoverageUnavailable
 fidelity::StartError  variant UnsupportedTarget
+fidelity::StartError  variant WorkerStoppedDuringStart
 fidelity::StartError  variant WorkerUnavailable

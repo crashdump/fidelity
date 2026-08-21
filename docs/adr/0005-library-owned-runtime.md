@@ -2,6 +2,7 @@
 
 - Status: accepted
 - Date: 2026-08-07
+- Initial action boundary: [ADR-0009](0009-atomic-start.md)
 
 ## Decision
 
