@@ -21,7 +21,7 @@
 //! The example exits with a success code when the worker reports the redirect,
 //! and with a failure code when the deadline passes first.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use fidelity::{Handle, Outcome};
 
@@ -35,6 +35,11 @@ const POLL: Duration = Duration::from_millis(250);
 const DISPATCH: &str = "instrumentation.dispatch_targets";
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // The hidden Windows control needs two one-time imports in one table.
+    // These calls finish before start, so the subject never uses those slots again.
+    let _ = std::env::args_os().count();
+    let _ = std::env::vars_os().count();
+
     // The example watches the detector rather than the denial latch. An
     // ad-hoc or unsigned build reports on other categories on every clean run,
     // so a latch on a whole category would report that instead of this. The
@@ -48,17 +53,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(2);
     }
 
-    let began = Instant::now();
-    while began.elapsed() < DEADLINE {
+    let mut waited = Duration::ZERO;
+    while waited < DEADLINE {
         if found(&handle) {
             println!(
                 "caught after {:.1}s: {}",
-                began.elapsed().as_secs_f32(),
+                waited.as_secs_f32(),
                 dispatch(&handle)
             );
             return Ok(());
         }
         std::thread::sleep(POLL);
+        waited += POLL;
     }
 
     println!(

@@ -56,5 +56,9 @@ wait "$subject"
 status=$?
 kill "$tracer" 2> /dev/null
 
+if [ "$status" -ne 0 ]; then
+    cat "$LOG.tracer"
+fi
+
 cat "$LOG"
 exit "$status"
