@@ -14,8 +14,11 @@ check_list() {
     manifest=$2
     fixture=$3
     actual="$package_temp/$package.txt"
+    raw="$actual.raw"
 
-    cargo package --manifest-path "$manifest" --list --allow-dirty >"$actual"
+    cargo package --manifest-path "$manifest" --list --allow-dirty >"$raw"
+    # Cargo can write CRLF on Windows. The package list has one format here.
+    tr -d '\r' <"$raw" >"$actual"
     diff -u "$fixture" "$actual"
 }
 

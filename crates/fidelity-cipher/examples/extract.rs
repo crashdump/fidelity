@@ -137,9 +137,12 @@ fn main() {
     };
     let identity = arguments.next().unwrap_or_default();
 
-    let Ok(image) = std::fs::read(&path) else {
-        println!("could not read {path}");
-        return;
+    let image = match std::fs::read(&path) {
+        Ok(image) => image,
+        Err(error) => {
+            eprintln!("the extractor could not read {path}: {error}");
+            std::process::exit(1);
+        }
     };
 
     println!("file      : {path} ({} bytes)", image.len());

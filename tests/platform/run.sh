@@ -54,6 +54,12 @@ fi
 # A digest of the right shape, for the build rules that must refuse a value.
 DIGEST=9f3a1c0e5b7d2846a09f3a1c0e5b7d2846a09f3a1c0e5b7d2846a09f3a1c0e5b
 
+# Cargo adds this suffix to an example on Windows.
+EXAMPLE_SUFFIX=''
+case "$(uname -s)" in
+    MINGW* | MSYS* | CYGWIN*) EXAMPLE_SUFFIX=.exe ;;
+esac
+
 mkdir -p "$OUT"
 # The markers that the timeout below writes. A run that a person stopped leaves
 # them, and a stale one must not decide anything in the next run.
@@ -65,6 +71,12 @@ note() {
     detail=$(printf '%s' "$4" | sed 's/[[:space:]]*$//')
     printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$detail" >> "$RECORD"
     printf '%-8s %-26s %-8s %s\n' "$1" "$2" "$3" "$detail"
+}
+
+# Prints the output that gave a failed row.
+show_failure() {
+    printf 'output for %s:\n' "$1"
+    sed -n '1,240p' "$OUT/$1.out"
 }
 
 # What one control answered, in one line. A tab in it would break the record.
@@ -181,6 +193,9 @@ run() {
         FAILED=$((FAILED + 1))
     fi
     note "$system" "$name" "$result" "$(($(date +%s) - begin))s. $(answer "$name")"
+    if [ "$result" = fail ]; then
+        show_failure "$name"
+    fi
 }
 
 # Runs one control that must fail, and that must say why.
@@ -193,16 +208,19 @@ refute() {
     begin=$(date +%s)
     if guard "$@" > "$OUT/$name.out" 2>&1; then
         note "$system" "$name" fail "the control succeeded, and it must not"
+        show_failure "$name"
         FAILED=$((FAILED + 1))
     elif grep -qF "$KILLED" "$OUT/$name.out"; then
         # This one comes before the needle, because a control that never
         # finished refused nothing.
         note "$system" "$name" fail "$KILLED"
+        show_failure "$name"
         FAILED=$((FAILED + 1))
     elif grep -qF "$needle" "$OUT/$name.out"; then
         note "$system" "$name" pass "$(($(date +%s) - begin))s. refused, and it said \"$needle\""
     else
         note "$system" "$name" fail "it failed for another reason than \"$needle\""
+        show_failure "$name"
         FAILED=$((FAILED + 1))
     fi
 }
@@ -299,7 +317,7 @@ refute host guarded-sha1-digest 'and this one has 40' \
 plaintext() {
     env FIDELITY_BUILD_SEED=test FIDELITY_CODE_IDENTITY=none \
         cargo build --release --quiet --example guarded -p fidelity || return 1
-    artifact=$ROOT/target/release/examples/guarded
+    artifact=$ROOT/target/release/examples/guarded$EXAMPLE_SUFFIX
 
     # The example prints this label, so the scan must find it. A scan that
     # found nothing at all would otherwise pass this control by failing.
@@ -322,7 +340,8 @@ extract() {
     env FIDELITY_BUILD_SEED=test FIDELITY_CODE_IDENTITY=none \
         cargo build --release --quiet --example guarded -p fidelity || return 1
     cargo run --release --quiet --example extract -p fidelity-cipher -- \
-        "$ROOT/target/release/examples/guarded" "$1" api.example.com /v1/session/open
+        "$ROOT/target/release/examples/guarded$EXAMPLE_SUFFIX" \
+        "$1" api.example.com /v1/session/open
 }
 run host extract-with-the-identity extract ''
 refute host extract-with-another-identity 'stayed hidden' extract ABCDE12345
@@ -334,7 +353,8 @@ refute host extract-with-another-identity 'stayed hidden' extract ABCDE12345
 seeded() {
     env FIDELITY_BUILD_SEED="$1" FIDELITY_CODE_IDENTITY=none \
         cargo build --release --quiet --example guarded -p fidelity >&2 || return 1
-    (shasum -a 256 2> /dev/null || sha256sum) < "$ROOT/target/release/examples/guarded" |
+    (shasum -a 256 2> /dev/null || sha256sum) < \
+        "$ROOT/target/release/examples/guarded$EXAMPLE_SUFFIX" |
         cut -d' ' -f1
 }
 two_seeds() {
@@ -362,7 +382,17 @@ interface_overlay() {
 
 run host interface-clean interface_clean
 run host interface-overlay interface_overlay
-run host sanitizers "$ROOT/tests/platform/controls/run-sanitizers.sh"
+SANITIZER_TARGET=$(rustc -vV | awk '/^host: / { print $2 }')
+case "$SANITIZER_TARGET" in
+    aarch64-apple-darwin | aarch64-unknown-linux-gnu | \
+        x86_64-apple-darwin | x86_64-unknown-freebsd | \
+        x86_64-unknown-linux-gnu)
+        run host sanitizers "$ROOT/tests/platform/controls/run-sanitizers.sh"
+        ;;
+    *)
+        skip host sanitizers "the Rust sanitizer tools do not support $SANITIZER_TARGET"
+        ;;
+esac
 
 # `05-verification.md` puts the sanitizers on every change and Miri on a
 # schedule. Miri walks seven crates and takes longer than the whole rest of this
@@ -576,6 +606,10 @@ if [ "$(uname -s)" = Darwin ]; then
         cargo build --quiet --example machine -p fidelity || return 1
         "$ROOT/target/debug/examples/machine" | grep 'machine_host: clean'
     }
+    machine_current_guest_macos() {
+        cargo build --quiet --example machine -p fidelity || return 1
+        "$ROOT/target/debug/examples/machine" | grep 'machine_host: Medium'
+    }
     # The guest runs the same binary that the clean half ran. Host and guest
     # take one target triple, so no build happens in the guest and the guest
     # needs no tool chain of its own.
@@ -595,10 +629,15 @@ if [ "$(uname -s)" = Darwin ]; then
     }
 
     run macOS cost-macos cargo run --release --quiet --example cost -p fidelity-probe-apple
-    run macOS machine-hardware-macos machine_hardware_macos
-    if [ -f "$MACOS_GUEST/disk.img" ]; then
+    if [ "${GITHUB_ACTIONS:-}" = true ]; then
+        skip macOS machine-hardware-macos \
+            "the GitHub runner is a virtual machine, so it cannot prove the hardware arm"
+        run macOS machine-guest-macos machine_current_guest_macos
+    elif [ -f "$MACOS_GUEST/disk.img" ]; then
+        run macOS machine-hardware-macos machine_hardware_macos
         run macOS machine-guest-macos machine_guest_macos
     else
+        run macOS machine-hardware-macos machine_hardware_macos
         skip macOS machine-guest-macos \
             "no macOS guest image. Build one with: tests/platform/controls/vm.sh macos build"
     fi
@@ -1303,11 +1342,22 @@ takes the guest: tests/platform/controls/vm.sh windows start"
     run Windows tracer-clean-windows tracer_clean_windows
     run Windows tracer-at-start-windows tracer_at_start_windows
     run Windows tracer-attaches-windows tracer_attaches_windows
-    run Windows cost-windows-x86 cost_windows_x86
-    run Windows inject-emulated-x86 inject_emulated_x86
-    refute Windows baseline-clean-x86-windows 'no code arrived after start' \
-        baseline_clean_x86_windows
-    run Windows tracer-clean-x86-windows tracer_clean_x86_windows
+    case "$(uname -m)" in
+        arm64 | aarch64)
+            run Windows cost-windows-x86 cost_windows_x86
+            run Windows inject-emulated-x86 inject_emulated_x86
+            refute Windows baseline-clean-x86-windows 'no code arrived after start' \
+                baseline_clean_x86_windows
+            run Windows tracer-clean-x86-windows tracer_clean_x86_windows
+            ;;
+        *)
+            for control in cost-windows-x86 inject-emulated-x86 \
+                baseline-clean-x86-windows tracer-clean-x86-windows; do
+                skip Windows "$control" \
+                    "this machine runs x86_64 directly, so it does not emulate x86_64"
+            done
+            ;;
+    esac
     # The machine-host control, in the shape that the Linux section states.
     if [ "$WINDOWS_HOW" = "in the guest" ]; then
         run Windows machine-guest-windows machine_guest_windows
@@ -1520,10 +1570,14 @@ fi
 # certificate digest from the keystore and from a walk of the signing block, so
 # it needs the build tools and no device at all. The two must agree, because
 # the walk is the route the probe takes and the keystore is the truth.
-if [ -d "${ANDROID_HOME:-}/build-tools" ] && command -v python3 > /dev/null 2>&1; then
+if [ -d "${ANDROID_HOME:-}/build-tools" ] && \
+    command -v python3 > /dev/null 2>&1 && \
+    command -v zip > /dev/null 2>&1 && \
+    command -v keytool > /dev/null 2>&1; then
     run Android android-identity-mechanism "$ROOT/tests/platform/controls/make-apk.sh"
 else
-    skip Android android-identity-mechanism "no Android build tools, or no python3"
+    skip Android android-identity-mechanism \
+        "no Android build tools, python3, zip, or keytool"
 fi
 
 # ------------------------------------------------------- what a person still runs
