@@ -117,6 +117,11 @@ Tauri.
 `tauri-plugin-fidelity` owns an independent workspace. It pins Tauri 2, starts a supplied
 `fidelity::Builder` in the plugin setup hook, and stores the `Handle` in Tauri state.
 
+Tauri 2.11.5 is the current release. Its Linux GTK3 graph pins `glib` 0.18.5, which
+`RUSTSEC-2024-0429` affects. Tauri offers no safe update. The adapter calls no `glib` API, and
+`deny.toml` records the accepted upstream dependency. Keep the GitHub alert open until Tauri removes
+this dependency.
+
 `FidelityExt` gives Rust code `fidelity_handle()` and `ensure_fidelity_allowed()`. The adapter
 exposes no WebView command, event, JavaScript package, permission, or capability. Its public
 surface follows SemVer. [ADR-0010](../adr/0010-rust-only-tauri-adapter.md) holds the constraint.

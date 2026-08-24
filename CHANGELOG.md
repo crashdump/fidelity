@@ -109,8 +109,10 @@ gaps before the v1 release proof.
   and detector paths. The package gate covers each facade feature and both Tauri access paths.
 - The release publishes all versioned workspace crates and `tauri-plugin-fidelity` to crates.io.
   A clean consumer builds `fidelity` on Rust 1.85 and the adapter on Rust 1.88.
-- The dependency graphs must contain no RustSec vulnerability, unaccepted source, remote runtime
+- The Fidelity workspace graph contains no RustSec vulnerability, unaccepted source, remote runtime
   client, or accidental WebView surface.
+- The adapter accepts `RUSTSEC-2024-0429` in Tauri's Linux GTK3 graph. Tauri 2.11.5 is current and
+  offers no safe update. The adapter calls no `glib` API, and the GitHub alert stays open.
 - `main`, the `v0.4.0` tag, the manifest version, the test record, and the public release must
   identify one commit.
 
