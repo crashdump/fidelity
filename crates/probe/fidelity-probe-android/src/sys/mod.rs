@@ -10,6 +10,7 @@
 //! One file per operating-system interface.
 
 pub(crate) mod apk;
+pub(crate) mod catalog;
 pub(crate) mod dispatch;
 pub(crate) mod jvm;
 pub(crate) mod maps;

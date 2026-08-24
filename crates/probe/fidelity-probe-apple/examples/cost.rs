@@ -65,6 +65,9 @@ fn main() {
     measure::report("machine_host", || {
         black_box(black_box(environment).machine_host());
     });
+    measure::report("local_agent", || {
+        black_box(black_box(environment).local_agent_state());
+    });
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "ios")))]

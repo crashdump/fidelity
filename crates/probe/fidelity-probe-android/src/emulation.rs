@@ -85,13 +85,13 @@ fn judge(
     // One property alone states an emulator, so each answer stands whatever
     // the other two say, and a failed read of them changes nothing.
     if boot == Some(BOOTED_BY_AN_EMULATOR) {
-        return Ok(virtual_machine(BOOT_STATES_AN_EMULATOR));
+        return Ok(simulated(BOOT_STATES_AN_EMULATOR));
     }
     if characteristics.is_some_and(names_an_emulator) {
-        return Ok(virtual_machine(BUILD_STATES_AN_EMULATOR));
+        return Ok(simulated(BUILD_STATES_AN_EMULATOR));
     }
     if board.is_some_and(|name| VIRTUAL_BOARDS.contains(&name)) {
-        return Ok(virtual_machine(BOARD_IS_VIRTUAL));
+        return Ok(simulated(BOARD_IS_VIRTUAL));
     }
     // Only the hardware answer is left, and it needs the store to have
     // answered at all. Reporting it from an empty store would turn a broken
@@ -108,8 +108,8 @@ fn names_an_emulator(characteristics: &str) -> bool {
 }
 
 /// Builds the fact that a reported emulator carries.
-fn virtual_machine(detail: &'static str) -> MachineHost {
-    MachineHost::VirtualMachine {
+fn simulated(detail: &'static str) -> MachineHost {
+    MachineHost::Simulated {
         detail: BoundedText::new(detail),
     }
 }
@@ -145,7 +145,7 @@ mod tests {
         let Ok(host) = judge(Some("1"), Some("nosdcard"), Some("qcom")) else {
             panic!("a stated board is never a failed read")
         };
-        assert!(matches!(host, MachineHost::VirtualMachine { .. }));
+        assert!(matches!(host, MachineHost::Simulated { .. }));
     }
 
     #[test]
@@ -153,7 +153,7 @@ mod tests {
         let Ok(host) = judge(None, Some("emulator"), Some("qcom")) else {
             panic!("a stated board is never a failed read")
         };
-        assert!(matches!(host, MachineHost::VirtualMachine { .. }));
+        assert!(matches!(host, MachineHost::Simulated { .. }));
     }
 
     #[test]
@@ -161,7 +161,7 @@ mod tests {
         let Ok(host) = judge(None, Some("nosdcard"), Some("ranchu")) else {
             panic!("a stated board is never a failed read")
         };
-        assert!(matches!(host, MachineHost::VirtualMachine { .. }));
+        assert!(matches!(host, MachineHost::Simulated { .. }));
     }
 
     #[test]
@@ -171,7 +171,7 @@ mod tests {
         let Ok(host) = judge(None, Some("nosdcard,emulator"), Some("qcom")) else {
             panic!("a stated board is never a failed read")
         };
-        assert!(matches!(host, MachineHost::VirtualMachine { .. }));
+        assert!(matches!(host, MachineHost::Simulated { .. }));
     }
 
     #[test]
@@ -207,6 +207,6 @@ mod tests {
         let Ok(host) = judge(Some("1"), None, None) else {
             panic!("one stated property is never a failed read")
         };
-        assert!(matches!(host, MachineHost::VirtualMachine { .. }));
+        assert!(matches!(host, MachineHost::Simulated { .. }));
     }
 }

@@ -468,7 +468,7 @@ mod tests {
 
     use fidelity_core::{
         Baseline, CodeIdentity, Device, Dispatch, Emulation, Environment, Identity, Injection,
-        Lifecycle, Observation, PlatformTrust, Signer, Tracer,
+        Lifecycle, Observation, PlatformTrust, Signer, Tracer, VerifiedBoot,
     };
     use fidelity_detect::{DISPATCH_TARGETS, INVENTORY, TRACER_PRESENT, UNACCOUNTED_CODE};
     use fidelity_engine::{Pending, Policy, State};
@@ -492,9 +492,18 @@ mod tests {
     impl Identity for Bare {}
     impl Tracer for Bare {}
     impl Injection for Bare {}
+    impl fidelity_core::ImageCatalog for Bare {}
     impl Baseline for Bare {}
     impl Dispatch for Bare {}
     impl Device for Bare {}
+    impl VerifiedBoot for Bare {}
+    impl fidelity_core::LocalAgent for Bare {
+        fn local_agent_state(&self) -> Observation<fidelity_core::LocalAgentState> {
+            Observation::Unsupported {
+                reason: "no test fact",
+            }
+        }
+    }
     impl Emulation for Bare {}
 
     impl Lifecycle for Bare {}
@@ -517,9 +526,18 @@ mod tests {
 
     impl Tracer for Signed {}
     impl Injection for Signed {}
+    impl fidelity_core::ImageCatalog for Signed {}
     impl Baseline for Signed {}
     impl Dispatch for Signed {}
     impl Device for Signed {}
+    impl VerifiedBoot for Signed {}
+    impl fidelity_core::LocalAgent for Signed {
+        fn local_agent_state(&self) -> Observation<fidelity_core::LocalAgentState> {
+            Observation::Unsupported {
+                reason: "no test fact",
+            }
+        }
+    }
     impl Emulation for Signed {}
 
     impl Lifecycle for Signed {}

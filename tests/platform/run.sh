@@ -336,7 +336,14 @@ plaintext() {
             return 1
         fi
     done
-    echo "neither guarded literal is in the artifact in the clear"
+    env FIDELITY_BUILD_SEED=test FIDELITY_CODE_IDENTITY=none \
+        cargo build --release --quiet --example guarded-bytes -p fidelity || return 1
+    byte_artifact=$ROOT/target/release/examples/guarded-bytes$EXAMPLE_SUFFIX
+    if grep -aqF GuardedByteSpan2408 "$byte_artifact"; then
+        echo "the byte artifact holds its literal in the clear"
+        return 1
+    fi
+    echo "no guarded literal is in its artifact in the clear"
 }
 run host guarded-no-plaintext plaintext
 
@@ -362,6 +369,17 @@ case "$(uname -s):$(uname -m)" in
         refute host extract-with-another-identity 'stayed hidden' extract ABCDE12345
         ;;
 esac
+
+extract_bytes() {
+    env FIDELITY_BUILD_SEED=test FIDELITY_CODE_IDENTITY=none \
+        cargo build --release --quiet --example guarded-bytes -p fidelity || return 1
+    cargo run --release --quiet --example extract -p fidelity-cipher -- \
+        "$ROOT/target/release/examples/guarded-bytes$EXAMPLE_SUFFIX" \
+        "$1" hex:0047756172646564427974655370616e32343038ff
+}
+run host extract-bytes-with-the-identity extract_bytes ''
+refute host extract-bytes-with-another-identity 'stayed hidden' \
+    extract_bytes ABCDE12345
 
 # `06-delivery.md` requires this one by name. The macro crate declares the seed
 # with `rerun-if-env-changed`, and without that line Cargo reuses the previous
@@ -510,6 +528,21 @@ if [ "$(uname -s)" = Darwin ]; then
         cargo build --quiet --example redirect -p fidelity || return 1
         "$ROOT/target/debug/examples/redirect"
     }
+
+    local_agent_macos() {
+        mode=$1
+        cargo build --quiet --example local-agent --example local-agent-endpoint \
+            -p fidelity || return 1
+        "$ROOT/target/debug/examples/local-agent-endpoint" "$mode" > "$OUT/endpoint.out" &
+        server=$!
+        while ! grep -q ready "$OUT/endpoint.out"; do sleep 0.05; done
+        "$ROOT/target/debug/examples/local-agent"
+        status=$?
+        wait "$server" || status=1
+        return "$status"
+    }
+    local_agent_hostile_macos() { local_agent_macos frida | grep 'local_agent: Medium'; }
+    local_agent_unrelated_macos() { local_agent_macos unrelated | grep 'local_agent: clean'; }
 
     # The resume promise. The plan makes a full scan the worker's first work
     # item after the machine continues a frozen process, and the mechanism is
@@ -662,6 +695,8 @@ if [ "$(uname -s)" = Darwin ]; then
     run macOS identity-clean-macos identity_clean_macos
     run macOS identity-repackaged-macos identity_repackaged_macos
     run macOS identity-pinned-other-macos identity_pinned_other_macos
+    run macOS local-agent-hostile-macos local_agent_hostile_macos
+    run macOS local-agent-unrelated-macos local_agent_unrelated_macos
     run macOS baseline-hostile baseline_hostile
     refute macOS baseline-clean 'no code arrived after start' baseline_clean
     run macOS baseline-writable-macos baseline_writable_macos
@@ -680,6 +715,7 @@ else
     for control in cost-macos machine-hardware-macos machine-guest-macos \
         identity-adhoc-macos identity-clean-macos \
         identity-repackaged-macos identity-pinned-other-macos \
+        local-agent-hostile-macos local-agent-unrelated-macos \
         baseline-hostile baseline-clean \
         baseline-writable-macos baseline-limit-macos \
         tracer-clean tracer-at-start tracer-attaches resume-after-freeze \
@@ -699,7 +735,11 @@ fi
 # a control that nobody has to keep working.
 # -------------------------------------------------------------------------- iOS
 
-SIMULATOR=$(xcrun simctl list devices 2>/dev/null | awk '/Booted/ {print $(NF-1)}' | tr -d '()' | head -1)
+SIMULATOR=${FIDELITY_IOS_SIM:-}
+if [ -z "$SIMULATOR" ]; then
+    SIMULATOR=$(xcrun simctl list devices 2>/dev/null |
+        awk '/Booted/ {print $(NF-1)}' | tr -d '()' | head -1)
+fi
 if [ -n "$SIMULATOR" ]; then
     ios() {
         env FIDELITY_IOS_SIM="$SIMULATOR" \
@@ -728,6 +768,18 @@ if [ -n "$SIMULATOR" ]; then
     identity_clean_ios() { sim_run identity | grep 'protected operation: allowed'; }
     identity_pinned_team_ios() {
         sim_run identity ABCDE12345 | grep 'the running image names none'
+    }
+
+    # The simulator reports the host architecture instead of an iOS product.
+    machine_simulator_ios() {
+        sim_run machine | grep 'SimulatedEnvironment'
+    }
+
+    local_agent_hostile_ios() {
+        sim_run local-agent frida | grep 'local_agent: Medium'
+    }
+    local_agent_unrelated_ios() {
+        sim_run local-agent unrelated | grep 'local_agent: clean'
     }
 
     # The tracer set, in the same three shapes as macOS, Linux, and Windows.
@@ -810,8 +862,11 @@ if [ -n "$SIMULATOR" ]; then
 
     run iOS ios-probe-tests ios test -p fidelity-probe-apple
     run iOS cost-ios ios run --release --quiet --example cost -p fidelity-probe-apple
+    run iOS machine-simulator-ios machine_simulator_ios
     run iOS identity-clean-ios identity_clean_ios
     run iOS identity-pinned-team-ios identity_pinned_team_ios
+    run iOS local-agent-hostile-ios local_agent_hostile_ios
+    run iOS local-agent-unrelated-ios local_agent_unrelated_ios
     run iOS tracer-clean-ios tracer_clean_ios
     run iOS tracer-at-start-ios tracer_at_start_ios
     run iOS tracer-attaches-ios tracer_attaches_ios
@@ -824,8 +879,9 @@ if [ -n "$SIMULATOR" ]; then
     run iOS baseline-writable-ios baseline_writable_ios
     run iOS baseline-limit-ios baseline_limit_ios
 else
-    for control in ios-probe-tests cost-ios \
+    for control in ios-probe-tests cost-ios machine-simulator-ios \
         identity-clean-ios identity-pinned-team-ios \
+        local-agent-hostile-ios local-agent-unrelated-ios \
         tracer-clean-ios tracer-at-start-ios tracer-attaches-ios \
         resume-after-freeze-ios dispatch-hostile-ios dispatch-clean-ios \
         baseline-hostile-ios baseline-clean-ios \
@@ -833,6 +889,28 @@ else
         skip iOS "$control" \
             "no simulator is booted: xcrun simctl boot \"iPhone 16 Pro\""
     done
+fi
+
+# ---------------------------------------------------------- physical iPhone
+
+if [ -n "${FIDELITY_IOS_DEVICE:-}" ] && [ -n "${FIDELITY_IOS_TEAM:-}" ]; then
+    run iOS identity-device-ios \
+        "$ROOT/tests/platform/controls/run-ios-device.sh" identity
+    run iOS machine-device-ios \
+        "$ROOT/tests/platform/controls/run-ios-device.sh" machine
+    run iOS cost-device-ios \
+        "$ROOT/tests/platform/controls/run-ios-device.sh" cost
+    run iOS local-agent-device-ios \
+        "$ROOT/tests/platform/controls/run-ios-device.sh" local-agent
+else
+    skip iOS identity-device-ios \
+        "set FIDELITY_IOS_DEVICE and FIDELITY_IOS_TEAM for a physical iPhone"
+    skip iOS machine-device-ios \
+        "set FIDELITY_IOS_DEVICE and FIDELITY_IOS_TEAM for a physical iPhone"
+    skip iOS cost-device-ios \
+        "set FIDELITY_IOS_DEVICE and FIDELITY_IOS_TEAM for a physical iPhone"
+    skip iOS local-agent-device-ios \
+        "set FIDELITY_IOS_DEVICE and FIDELITY_IOS_TEAM for a physical iPhone"
 fi
 
 # ------------------------------------------------------------------------ Linux
@@ -885,6 +963,39 @@ if [ -n "$LINUX_HOW" ]; then
         linux 'cc -shared -fPIC -o /tmp/agent.so tests/platform/controls/agent.c &&
             LD_PRELOAD=/tmp/agent.so cargo run --quiet --example inject -p fidelity' |
             grep 'unaccounted_code: Medium'
+    }
+    image_catalog_clean_linux() {
+        linux 'cargo run --quiet --example image-catalog -p fidelity' |
+            grep 'image catalog: clean'
+    }
+    image_catalog_hostile_linux() {
+        linux 'cc -shared -fPIC -o /tmp/catalog-map.so \
+                tests/platform/controls/catalog-map.c -ldl &&
+            LD_PRELOAD=/tmp/catalog-map.so \
+                cargo run --quiet --example image-catalog -p fidelity' |
+            grep 'image catalog: Medium'
+    }
+    local_agent_hostile_linux() {
+        linux 'cargo build --quiet --example local-agent --example local-agent-endpoint \
+                -p fidelity || exit 1
+            /var/tmp/target/debug/examples/local-agent-endpoint frida \
+                >/tmp/endpoint.out & server=$!
+            while ! grep -q ready /tmp/endpoint.out; do sleep 1; done
+            /var/tmp/target/debug/examples/local-agent
+            status=$?
+            wait $server || status=1
+            exit $status' | grep 'local_agent: Medium'
+    }
+    local_agent_unrelated_linux() {
+        linux 'cargo build --quiet --example local-agent --example local-agent-endpoint \
+                -p fidelity || exit 1
+            /var/tmp/target/debug/examples/local-agent-endpoint unrelated \
+                >/tmp/endpoint.out & server=$!
+            while ! grep -q ready /tmp/endpoint.out; do sleep 1; done
+            /var/tmp/target/debug/examples/local-agent
+            status=$?
+            wait $server || status=1
+            exit $status' | grep 'local_agent: clean'
     }
     linux_late() {
         linux "cc -shared -fPIC -o /tmp/delayed.so tests/platform/controls/delayed.c -lpthread &&
@@ -946,6 +1057,10 @@ if [ -n "$LINUX_HOW" ]; then
     run Linux cost-linux linux cargo run --release --quiet --example cost -p fidelity-probe-linux
     run Linux inject-clean inject_clean
     run Linux inject-hostile inject_hostile
+    run Linux image-catalog-clean-linux image_catalog_clean_linux
+    run Linux image-catalog-hostile-linux image_catalog_hostile_linux
+    run Linux local-agent-hostile-linux local_agent_hostile_linux
+    run Linux local-agent-unrelated-linux local_agent_unrelated_linux
     run Linux dispatch-hostile-linux dispatch_hostile_linux
     refute Linux dispatch-clean-linux 'no dispatch target moved after start' dispatch_clean_linux
     run Linux baseline-hostile-linux baseline_hostile_linux
@@ -1020,6 +1135,10 @@ if [ -n "$LINUX_HOW" ]; then
         linux 'cargo run --quiet --example machine -p fidelity' |
             grep 'machine_host: Medium'
     }
+    machine_hardware_linux() {
+        linux 'cargo run --quiet --example machine -p fidelity' |
+            grep 'machine_host: clean'
+    }
     # The masked-firmware control, which proves that a failed read reports its
     # health and never the hardware. A user and mount namespace holds a fresh
     # tmpfs over the firmware directory, and a file named `id` sits in it, so a
@@ -1050,14 +1169,17 @@ if [ -n "$LINUX_HOW" ]; then
     run Linux tracer-attaches-linux tracer_attaches_linux
     run Linux plugin-load-linux plugin_load_linux
     run Linux legitimate-plugin-linux legitimate_plugin_linux
-    # The machine-host control. A guest is a virtual machine, so the detector
-    # must report one there. It takes the guest and it skips on a machine that
-    # already runs Linux, because that machine may sit on the hardware or
-    # inside a monitor and this harness cannot state which. A control that
-    # asserted either answer would assert what nobody measured.
+    # The machine-host pair. A guest must report a monitor. A verified physical
+    # host must report the hardware. The flag makes the operator state the
+    # precondition, because a native Linux runner can still be a guest.
     if [ "$LINUX_HOW" = "in the guest" ]; then
+        skip Linux machine-hardware-linux "the project guest cannot prove the hardware arm"
         run Linux machine-guest-linux machine_guest_linux
+    elif [ "${FIDELITY_PHYSICAL_HOST:-}" = 1 ]; then
+        run Linux machine-hardware-linux machine_hardware_linux
+        skip Linux machine-guest-linux "the physical host cannot prove the guest arm"
     else
+        skip Linux machine-hardware-linux "set FIDELITY_PHYSICAL_HOST=1 on verified hardware"
         skip Linux machine-guest-linux "this machine runs Linux, and the harness cannot state \
 whether it runs on the hardware or inside a monitor"
     fi
@@ -1072,12 +1194,14 @@ whether it runs on the hardware or inside a monitor"
     fi
 else
     for control in linux-probe-tests cost-linux inject-clean inject-hostile \
+        image-catalog-clean-linux image-catalog-hostile-linux \
+        local-agent-hostile-linux local-agent-unrelated-linux \
         dispatch-hostile-linux dispatch-clean-linux \
         baseline-hostile-linux baseline-clean-linux \
         baseline-writable-linux baseline-limit-linux \
         identity-clean-linux identity-repackaged-linux verity-linux \
         tracer-clean-linux tracer-at-start-linux tracer-attaches-linux \
-        plugin-load-linux legitimate-plugin-linux machine-guest-linux \
+        plugin-load-linux legitimate-plugin-linux machine-hardware-linux machine-guest-linux \
         machine-masked-linux; do
         skip Linux "$control" "this machine runs no Linux, and no guest answers: \
 tests/platform/controls/vm.sh linux start"
@@ -1194,6 +1318,31 @@ if [ -n "$WINDOWS_HOW" ]; then
             grep 'did not validate'
     }
 
+    guarded_windows() {
+        windows 'export FIDELITY_BUILD_SEED=test FIDELITY_CODE_IDENTITY=none
+            cargo build --quiet --example guarded -p fidelity || exit 1
+            powershell -NoProfile -ExecutionPolicy Bypass \
+                -File tests/platform/controls/sign-windows.ps1 \
+                -Source "$(cygpath -w target/debug/examples/guarded.exe)" \
+                -OutDir "$(cygpath -w target/platform)" || exit 1
+            digest=$(cat target/platform/trusted-sha256.txt)
+            export FIDELITY_CODE_IDENTITY=windows:$digest
+            cargo build --quiet --example guarded -p fidelity || exit 1
+            powershell -NoProfile -ExecutionPolicy Bypass \
+                -File tests/platform/controls/sign-guarded-windows.ps1 \
+                -Source "$(cygpath -w target/debug/examples/guarded.exe)" \
+                -OutDir "$(cygpath -w target/platform)" || exit 1
+            target/platform/guarded-trusted.exe >target/platform/guarded-clean.out || exit 1
+            grep -q "host: api.example.com" target/platform/guarded-clean.out || exit 1
+            target/platform/guarded-untrusted.exe >target/platform/guarded-hostile.out || exit 1
+            grep -q "host:" target/platform/guarded-hostile.out || exit 1
+            if grep -q "api.example.com" target/platform/guarded-hostile.out; then exit 1; fi
+            if target/debug/examples/guarded.exe >target/platform/guarded-unsigned.out 2>&1; then
+                exit 1
+            fi
+            grep -q IdentityBindingUnavailable target/platform/guarded-unsigned.out'
+    }
+
     inject_clean_windows() {
         windows 'cargo build --quiet --example inject -p fidelity &&
             target/debug/examples/inject.exe' |
@@ -1207,6 +1356,42 @@ if [ -n "$WINDOWS_HOW" ]; then
             target/platform/inject-windows.exe \
                 "$(cygpath -w target/debug/examples/inject.exe)"' |
             grep 'unaccounted_code: Medium'
+    }
+
+    image_catalog_clean_windows() {
+        windows 'cargo build --quiet --example image-catalog -p fidelity &&
+            target/debug/examples/image-catalog.exe' |
+            grep 'image catalog: clean'
+    }
+    image_catalog_hostile_windows() {
+        # build-control.sh compiles controls/catalog-map-windows.c.
+        windows 'cargo build --quiet --example image-catalog -p fidelity &&
+            sh tests/platform/controls/build-control.sh catalog-map-windows &&
+            target/platform/catalog-map-windows.exe \
+                "$(cygpath -w target/debug/examples/image-catalog.exe)"' |
+            grep 'image catalog: Medium'
+    }
+    local_agent_hostile_windows() {
+        windows 'cargo build --quiet --example local-agent --example local-agent-endpoint \
+                -p fidelity || exit 1
+            target/debug/examples/local-agent-endpoint.exe frida \
+                >target/platform/endpoint.out & server=$!
+            while ! grep -q ready target/platform/endpoint.out; do sleep 1; done
+            target/debug/examples/local-agent.exe
+            status=$?
+            wait $server || status=1
+            exit $status' | grep 'local_agent: Medium'
+    }
+    local_agent_unrelated_windows() {
+        windows 'cargo build --quiet --example local-agent --example local-agent-endpoint \
+                -p fidelity || exit 1
+            target/debug/examples/local-agent-endpoint.exe unrelated \
+                >target/platform/endpoint.out & server=$!
+            while ! grep -q ready target/platform/endpoint.out; do sleep 1; done
+            target/debug/examples/local-agent.exe
+            status=$?
+            wait $server || status=1
+            exit $status' | grep 'local_agent: clean'
     }
 
     # The runtime-baseline pair. The hostile half maps into a process that
@@ -1329,6 +1514,10 @@ if [ -n "$WINDOWS_HOW" ]; then
         windows 'cargo run --quiet --example machine -p fidelity' |
             grep 'machine_host: Medium'
     }
+    machine_hardware_windows() {
+        windows 'cargo run --quiet --example machine -p fidelity' |
+            grep 'machine_host: clean'
+    }
 
     run Windows windows-probe-tests windows_probe_tests
     run Windows cost-windows cost_windows
@@ -1338,15 +1527,22 @@ if [ -n "$WINDOWS_HOW" ]; then
         run Windows identity-clean-windows identity_clean_windows
         run Windows identity-other-signer-windows identity_other_signer_windows
         run Windows identity-untrusted-windows identity_untrusted_windows
+        run Windows guarded-windows guarded_windows
     else
         for control in identity-clean-windows identity-other-signer-windows \
             identity-untrusted-windows; do
             skip Windows "$control" "this arm anchors a certificate on the machine, so it \
 takes the guest: tests/platform/controls/vm.sh windows start"
         done
+        skip Windows guarded-windows \
+            "this arm anchors a certificate on the machine, so it takes the guest"
     fi
     run Windows inject-clean-windows inject_clean_windows
     run Windows inject-hostile-windows inject_hostile_windows
+    run Windows image-catalog-clean-windows image_catalog_clean_windows
+    run Windows image-catalog-hostile-windows image_catalog_hostile_windows
+    run Windows local-agent-hostile-windows local_agent_hostile_windows
+    run Windows local-agent-unrelated-windows local_agent_unrelated_windows
     run Windows dispatch-hostile-windows dispatch_hostile_windows
     run Windows dispatch-hidden-windows dispatch_hidden_windows
     refute Windows dispatch-clean-windows 'no dispatch target moved after start' \
@@ -1375,10 +1571,15 @@ takes the guest: tests/platform/controls/vm.sh windows start"
             done
             ;;
     esac
-    # The machine-host control, in the shape that the Linux section states.
+    # The machine-host pair, in the shape that the Linux section states.
     if [ "$WINDOWS_HOW" = "in the guest" ]; then
+        skip Windows machine-hardware-windows "the project guest cannot prove the hardware arm"
         run Windows machine-guest-windows machine_guest_windows
+    elif [ "${FIDELITY_PHYSICAL_HOST:-}" = 1 ]; then
+        run Windows machine-hardware-windows machine_hardware_windows
+        skip Windows machine-guest-windows "the physical host cannot prove the guest arm"
     else
+        skip Windows machine-hardware-windows "set FIDELITY_PHYSICAL_HOST=1 on verified hardware"
         skip Windows machine-guest-windows "this machine runs Windows, and the harness cannot \
 state whether it runs on the hardware or inside a monitor"
     fi
@@ -1392,25 +1593,50 @@ tests/platform/controls/vm.sh windows start"
     for control in windows-probe-tests cost-windows \
         identity-clean-windows identity-other-signer-windows \
         identity-untrusted-windows \
+        guarded-windows \
         inject-clean-windows inject-hostile-windows \
+        image-catalog-clean-windows image-catalog-hostile-windows \
+        local-agent-hostile-windows local-agent-unrelated-windows \
         dispatch-hostile-windows dispatch-hidden-windows dispatch-clean-windows \
         baseline-hostile-windows baseline-clean-windows \
         baseline-writable-windows baseline-limit-windows \
         tracer-clean-windows tracer-at-start-windows tracer-attaches-windows \
         cost-windows-x86 inject-emulated-x86 baseline-clean-x86-windows \
-        tracer-clean-x86-windows machine-guest-windows; do
+        tracer-clean-x86-windows machine-hardware-windows machine-guest-windows; do
         skip Windows "$control" "$WHY"
     done
 fi
 
 # ---------------------------------------------------------------------- Android
 
-# Cargo links an Android binary with `cc`, which is the host compiler here, and
-# the Apple linker refuses the arguments that Cargo passes. The NDK ships the
-# right one under a directory that carries its version, so the harness takes the
-# newest rather than a pinned path.
-NDK_CC=$(ls "${ANDROID_HOME:-}"/ndk/*/toolchains/llvm/prebuilt/*/bin/aarch64-linux-android*-clang \
-    2>/dev/null | tail -1)
+# Cargo links an Android binary with `cc`, which is the host compiler here. The
+# attached target selects its Rust target and its NDK linker. The harness takes
+# the newest installed NDK rather than a pinned path.
+ANDROID_ABI=$(adb shell getprop ro.product.cpu.abi 2>/dev/null | tr -d '\r')
+ANDROID_TARGET=''
+ANDROID_CARGO_LINKER=''
+ANDROID_CC=''
+ANDROID_RUNNER=''
+case "$ANDROID_ABI" in
+    arm64-v8a)
+        ANDROID_TARGET=aarch64-linux-android
+        ANDROID_CARGO_LINKER=CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER
+        ANDROID_CC=CC_aarch64_linux_android
+        ANDROID_RUNNER=CARGO_TARGET_AARCH64_LINUX_ANDROID_RUNNER
+        ;;
+    x86_64)
+        ANDROID_TARGET=x86_64-linux-android
+        ANDROID_CARGO_LINKER=CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER
+        ANDROID_CC=CC_x86_64_linux_android
+        ANDROID_RUNNER=CARGO_TARGET_X86_64_LINUX_ANDROID_RUNNER
+        ;;
+esac
+
+NDK_CC=''
+if [ -n "$ANDROID_TARGET" ]; then
+    NDK_CC=$(ls "${ANDROID_HOME:-}"/ndk/*/toolchains/llvm/prebuilt/*/bin/"$ANDROID_TARGET"*-clang \
+        2>/dev/null | tail -1)
+fi
 
 # Every control that this section runs. Both skip arms below read this one
 # list, because a control that a skip arm forgets leaves no row at all, and a
@@ -1421,25 +1647,34 @@ ANDROID_CONTROLS="android-probe-tests cost-android android-instrumented
     baseline-clean-android baseline-hostile-android
     baseline-writable-android baseline-limit-android
     inject-clean-android inject-hostile-android
-    dispatch-clean-android dispatch-hostile-android machine-emulator-android"
+    image-catalog-clean-android image-catalog-hostile-android
+    local-agent-hostile-android local-agent-unrelated-android
+    dispatch-clean-android dispatch-hostile-android
+    verified-boot-clean-android verified-boot-hostile-android
+    machine-hardware-android machine-emulator-android"
 
 if [ -z "$(adb devices 2>/dev/null | awk 'NR > 1 && $2 == "device" { print $1 }')" ]; then
     for control in $ANDROID_CONTROLS; do
         skip Android "$control" "no device answers adb"
     done
+elif [ -z "$ANDROID_TARGET" ]; then
+    for control in $ANDROID_CONTROLS; do
+        skip Android "$control" "the device reports the unsupported ABI ${ANDROID_ABI:-none}"
+    done
 elif [ -z "$NDK_CC" ]; then
     for control in $ANDROID_CONTROLS; do
-        skip Android "$control" "no NDK linker under \$ANDROID_HOME/ndk"
+        skip Android "$control" "no $ANDROID_TARGET NDK linker under \$ANDROID_HOME/ndk"
     done
 else
     android() {
-        env CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDK_CC" \
-            CC_aarch64_linux_android="$NDK_CC" \
-            CARGO_TARGET_AARCH64_LINUX_ANDROID_RUNNER="$ROOT/tests/platform/controls/run-android.sh" \
-            cargo "$@" --target aarch64-linux-android
+        env "$ANDROID_CARGO_LINKER=$NDK_CC" \
+            "$ANDROID_CC=$NDK_CC" \
+            "$ANDROID_RUNNER=$ROOT/tests/platform/controls/run-android.sh" \
+            cargo "$@" --target "$ANDROID_TARGET"
     }
     instrumented() {
-        (cd "$ROOT/crates/probe/fidelity-probe-android/android" && ./gradlew "$@")
+        (cd "$ROOT/crates/probe/fidelity-probe-android/android" &&
+            env FIDELITY_ANDROID_ABI="$ANDROID_ABI" FIDELITY_NDK_CC="$NDK_CC" ./gradlew "$@")
     }
     repackage() {
         instrumented assembleDebugAndroidTest > /dev/null 2>&1 || return 1
@@ -1461,7 +1696,7 @@ else
     }
     android_example() {
         android build --quiet --example "$1" -p fidelity > /dev/null 2>&1 &&
-            android_push "$ROOT/target/aarch64-linux-android/debug/examples/$1" "$2"
+            android_push "$ROOT/target/$ANDROID_TARGET/debug/examples/$1" "$2"
     }
     android_tracer_tool() {
         "$NDK_CC" -o "$OUT/attach-android" "$ROOT/tests/platform/controls/attach.c" &&
@@ -1535,6 +1770,38 @@ else
             grep 'unaccounted_code: Medium'
     }
 
+    image_catalog_clean_android() {
+        android_example image-catalog image-catalog &&
+            adb shell /data/local/tmp/image-catalog | grep 'image catalog: clean'
+    }
+    image_catalog_hostile_android() {
+        android_example image-catalog image-catalog &&
+            "$NDK_CC" -shared -fPIC -o "$OUT/catalog-map-android.so" \
+                "$ROOT/tests/platform/controls/catalog-map.c" -ldl &&
+            android_push "$OUT/catalog-map-android.so" catalog-map.so &&
+            adb shell 'LD_PRELOAD=/data/local/tmp/catalog-map.so \
+                /data/local/tmp/image-catalog' | grep 'image catalog: Medium'
+    }
+
+    local_agent_android() {
+        mode=$1
+        android_example local-agent local-agent &&
+            android_example local-agent-endpoint local-agent-endpoint &&
+            adb shell "cd /data/local/tmp
+                ./local-agent-endpoint $mode >endpoint.out & server=\$!
+                while ! grep -q ready endpoint.out; do sleep 1; done
+                ./local-agent
+                status=\$?
+                wait \$server || status=1
+                exit \$status"
+    }
+    local_agent_hostile_android() {
+        local_agent_android frida | grep 'local_agent: Medium'
+    }
+    local_agent_unrelated_android() {
+        local_agent_android unrelated | grep 'local_agent: clean'
+    }
+
     # The dispatch pair, in the shape that the Linux section states. `hook.c`
     # rewrites one entry of the dispatch table of the main image, and a shell
     # binary holds Fidelity in that image, so the probe reads the table that
@@ -1552,12 +1819,43 @@ else
         android_example redirect redirect && adb shell /data/local/tmp/redirect
     }
 
-    # The machine-host control. Every Android system that this project reaches
-    # is an emulator, so the detector must report one. The clean half needs a
-    # physical device, and README.md holds that gap.
+    verified_boot_clean_android() {
+        android_example verified-boot verified-boot &&
+            adb shell /data/local/tmp/verified-boot |
+            grep 'device_compromise.verified_boot: clean'
+    }
+    verified_boot_hostile_android() {
+        android_example verified-boot verified-boot &&
+            adb shell /data/local/tmp/verified-boot |
+            grep 'device_compromise.verified_boot: Medium, UnverifiedBoot'
+    }
+
+    # The machine-host pair. An emulator states itself in one of the same three
+    # properties that the probe reads. A physical device needs an operator to
+    # state the precondition, because an unknown virtual product can name an
+    # unknown board and look like hardware.
+    android_target_is_emulator() {
+        boot=$(adb shell getprop ro.boot.qemu | tr -d '\r')
+        characteristics=$(adb shell getprop ro.build.characteristics | tr -d '\r')
+        board=$(adb shell getprop ro.hardware | tr -d '\r')
+        if [ "$boot" = 1 ]; then
+            return 0
+        fi
+        case ",$characteristics," in
+            *,emulator,*) return 0 ;;
+        esac
+        case "$board" in
+            goldfish | ranchu) return 0 ;;
+        esac
+        return 1
+    }
     machine_emulator_android() {
         android_example machine machine &&
             adb shell /data/local/tmp/machine | grep 'machine_host: Medium'
+    }
+    machine_hardware_android() {
+        android_example machine machine &&
+            adb shell /data/local/tmp/machine | grep 'machine_host: clean'
     }
 
     run Android android-probe-tests android test -p fidelity-probe-android
@@ -1577,10 +1875,42 @@ else
     run Android baseline-limit-android baseline_limit_android
     run Android inject-clean-android inject_clean_android
     run Android inject-hostile-android inject_hostile_android
+    run Android image-catalog-clean-android image_catalog_clean_android
+    run Android image-catalog-hostile-android image_catalog_hostile_android
+    run Android local-agent-hostile-android local_agent_hostile_android
+    run Android local-agent-unrelated-android local_agent_unrelated_android
     run Android dispatch-hostile-android dispatch_hostile_android
     refute Android dispatch-clean-android 'no dispatch target moved after start' \
         dispatch_clean_android
-    run Android machine-emulator-android machine_emulator_android
+    case "${FIDELITY_ANDROID_VERIFIED_BOOT:-}" in
+        clean)
+            run Android verified-boot-clean-android verified_boot_clean_android
+            skip Android verified-boot-hostile-android \
+                "the locked device cannot prove the unlocked arm"
+            ;;
+        hostile)
+            skip Android verified-boot-clean-android \
+                "the unlocked device cannot prove the locked arm"
+            run Android verified-boot-hostile-android verified_boot_hostile_android
+            ;;
+        *)
+            skip Android verified-boot-clean-android \
+                "set FIDELITY_ANDROID_VERIFIED_BOOT=clean on a verified locked device"
+            skip Android verified-boot-hostile-android \
+                "set FIDELITY_ANDROID_VERIFIED_BOOT=hostile on a verified unlocked device"
+            ;;
+    esac
+    if [ "${FIDELITY_ANDROID_PHYSICAL:-}" = 1 ]; then
+        run Android machine-hardware-android machine_hardware_android
+        skip Android machine-emulator-android "the physical device cannot prove the emulator arm"
+    elif android_target_is_emulator; then
+        skip Android machine-hardware-android "the emulator cannot prove the hardware arm"
+        run Android machine-emulator-android machine_emulator_android
+    else
+        skip Android machine-hardware-android \
+            "set FIDELITY_ANDROID_PHYSICAL=1 after the operator verifies the device"
+        skip Android machine-emulator-android "the device states no known emulator marker"
+    fi
 fi
 
 # The image-identity mechanism. It signs a small archive and reads the

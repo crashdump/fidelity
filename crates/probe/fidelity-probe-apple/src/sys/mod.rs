@@ -12,12 +12,17 @@ pub(crate) mod process;
 pub(crate) mod qos;
 pub(crate) mod regions;
 
+// A device reports its product name, and the simulator reports the host
+// architecture. iOS uses that difference for the machine-host capability.
+#[cfg(target_os = "ios")]
+pub(crate) mod machine;
+
 // The `SecCode` interface is macOS only, so iOS compiles without it.
 #[cfg(target_os = "macos")]
 pub(crate) mod security;
 
-// Apple virtualizes macOS and does not virtualize iOS, so only macOS asks
-// whether a monitor runs it. The name below is macOS only for that reason.
+// macOS asks whether a monitor runs its kernel. iOS reads its machine name
+// instead, because the simulator runs on the host kernel.
 #[cfg(target_os = "macos")]
 pub(crate) mod vmm;
 

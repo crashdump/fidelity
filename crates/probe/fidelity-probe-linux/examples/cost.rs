@@ -40,8 +40,14 @@ fn main() {
     measure::report("dispatch_targets", || {
         black_box(black_box(environment).dispatch_targets());
     });
+    measure::report("image_catalog", || {
+        black_box(black_box(environment).image_catalog_state());
+    });
     measure::report("machine_host", || {
         black_box(black_box(environment).machine_host());
+    });
+    measure::report("local_agent", || {
+        black_box(black_box(environment).local_agent_state());
     });
 }
 

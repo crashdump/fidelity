@@ -2,6 +2,7 @@
 //!
 //! The host selects the format. This serializer records only the Serde data
 //! model, so a format choice cannot change the contract that this test locks.
+//! Version 0.4.0 accepts this shape as the v1 compatibility baseline.
 
 use core::fmt;
 
@@ -370,12 +371,16 @@ Evidence[1]=Evidence::ImageUntrusted{detail:BoundedText{text:"detail",truncated:
 Evidence[2]=Evidence::UnexpectedIdentity{detail:BoundedText{text:"detail",truncated:false}}
 Evidence[3]=Evidence::TracerPresent{detail:BoundedText{text:"detail",truncated:false}}
 Evidence[4]=Evidence::UnaccountedCode{detail:BoundedText{text:"detail",truncated:false}}
-Evidence[5]=Evidence::CodeAddedAfterStart{detail:BoundedText{text:"detail",truncated:false}}
-Evidence[6]=Evidence::CodeMadeWritable{detail:BoundedText{text:"detail",truncated:false}}
-Evidence[7]=Evidence::DispatchRedirected{detail:BoundedText{text:"detail",truncated:false}}
-Evidence[8]=Evidence::DevelopmentBuild{detail:BoundedText{text:"detail",truncated:false}}
-Evidence[9]=Evidence::InterfaceObserved{detail:BoundedText{text:"detail",truncated:false}}
-Evidence[10]=Evidence::VirtualMachineHost{detail:BoundedText{text:"detail",truncated:false}}"#;
+Evidence[5]=Evidence::LocalInstrumentationAgent{detail:BoundedText{text:"detail",truncated:false}}
+Evidence[6]=Evidence::UnregisteredImage{detail:BoundedText{text:"detail",truncated:false}}
+Evidence[7]=Evidence::CodeAddedAfterStart{detail:BoundedText{text:"detail",truncated:false}}
+Evidence[8]=Evidence::CodeMadeWritable{detail:BoundedText{text:"detail",truncated:false}}
+Evidence[9]=Evidence::DispatchRedirected{detail:BoundedText{text:"detail",truncated:false}}
+Evidence[10]=Evidence::DevelopmentBuild{detail:BoundedText{text:"detail",truncated:false}}
+Evidence[11]=Evidence::UnverifiedBoot{detail:BoundedText{text:"detail",truncated:false}}
+Evidence[12]=Evidence::InterfaceObserved{detail:BoundedText{text:"detail",truncated:false}}
+Evidence[13]=Evidence::VirtualMachineHost{detail:BoundedText{text:"detail",truncated:false}}
+Evidence[14]=Evidence::SimulatedEnvironment{detail:BoundedText{text:"detail",truncated:false}}"#;
 
 fn named<T>(name: &str, value: &T, lines: &mut Vec<String>) -> Result<(), SchemaError>
 where
@@ -386,6 +391,10 @@ where
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one test owns the complete public schema fixture"
+)]
 fn public_export_schema_matches_the_locked_fixture() -> Result<(), Box<dyn std::error::Error>> {
     let detail = BoundedText::new("detail");
     let finding = Finding::new(
@@ -463,6 +472,12 @@ fn public_export_schema_matches_the_locked_fixture() -> Result<(), Box<dyn std::
         Evidence::UnaccountedCode {
             detail: detail.clone(),
         },
+        Evidence::LocalInstrumentationAgent {
+            detail: detail.clone(),
+        },
+        Evidence::UnregisteredImage {
+            detail: detail.clone(),
+        },
         Evidence::CodeAddedAfterStart {
             detail: detail.clone(),
         },
@@ -475,10 +490,16 @@ fn public_export_schema_matches_the_locked_fixture() -> Result<(), Box<dyn std::
         Evidence::DevelopmentBuild {
             detail: detail.clone(),
         },
+        Evidence::UnverifiedBoot {
+            detail: detail.clone(),
+        },
         Evidence::InterfaceObserved {
             detail: detail.clone(),
         },
-        Evidence::VirtualMachineHost { detail },
+        Evidence::VirtualMachineHost {
+            detail: detail.clone(),
+        },
+        Evidence::SimulatedEnvironment { detail },
     ];
     for (index, variant) in variants.iter().enumerate() {
         named(&format!("Evidence[{index}]"), variant, &mut lines)?;

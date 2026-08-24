@@ -8,8 +8,8 @@
 //!
 //! The rule fails when the code and the snapshot disagree. An addition updates
 //! the snapshot in the same change, and a removal or a rename is a breaking
-//! change that the changelog states. Version 0.1.0 is published, so that
-//! applies from now on.
+//! change that the changelog states. Version 0.4.0 accepts this snapshot as the
+//! v1 compatibility baseline, so each later change is deliberate.
 //!
 //! What this rule does not check. It reads Rust as text, for the reason that
 //! `architecture.rs` states: a rule about the shape of the workspace has to see

@@ -21,10 +21,10 @@
 //! kind that `FIDELITY_CODE_IDENTITY` names in front of it, because the
 //! running image reports the material and never the kind. Both are public.
 //!
-//! Every argument after that is a literal that the build guarded. The control
-//! then reports whether it recovered each one, and it exits non-zero when it
-//! did not. That is the form the release gate runs. With no literal it prints
-//! a sample instead, which is the form an attacker runs.
+//! Every argument after that is a literal that the build guarded. Prefix
+//! arbitrary bytes with `hex:`. The control reports whether it recovered each
+//! value, and it exits non-zero when it recovered none. With no value it
+//! prints a sample, which is the form an attacker runs.
 //!
 //! The extractor knows no seed and needs none. The seed reaches the salt at
 //! build time, and the salt is in the file.
@@ -72,6 +72,20 @@ const SAMPLE_MIN: usize = 15;
 /// The alphabet that the stream preserves, as its size and its first byte.
 const ALPHABET: u8 = 95;
 const FIRST: u8 = 0x20;
+
+/// One exact value that the release gate asks the extractor to recover.
+struct Expected {
+    label: String,
+    plain: Vec<u8>,
+    kind: ExpectedKind,
+}
+
+/// The stream that the macro used for one expected value.
+#[derive(Clone, Copy)]
+enum ExpectedKind {
+    Text,
+    Bytes,
+}
 
 /// The bytes that a secret is made of, in practice.
 ///
@@ -147,7 +161,16 @@ fn main() {
     println!("file      : {path} ({} bytes)", image.len());
     println!("identity  : {identity:?}");
 
-    let expected: Vec<String> = arguments.collect();
+    let mut expected = Vec::new();
+    for argument in arguments {
+        match parse_expected(argument) {
+            Ok(value) => expected.push(value),
+            Err(error) => {
+                eprintln!("the extractor refused an expected value: {error}");
+                std::process::exit(1);
+            }
+        }
+    }
 
     // The gate form states what it looks for, so it recovers each literal
     // exactly and needs no window at all. The sample form below is the one an
@@ -227,7 +250,7 @@ fn main() {
 /// than 2048 bytes apart on `x86_64`, so a window that held on one machine
 /// reported the constant as hidden on the other. A control that reports a
 /// recoverable constant as hidden overstates what the guard does.
-fn recover(image: &[u8], identity: &str, expected: &[String]) -> Vec<bool> {
+fn recover(image: &[u8], identity: &str, expected: &[Expected]) -> Vec<bool> {
     // Where each eight-byte run sits. Every guarded constant is at least MIN
     // bytes long, so eight bytes select the few places worth comparing.
     let mut index: std::collections::HashMap<[u8; 8], Vec<usize>> =
@@ -255,11 +278,14 @@ fn recover(image: &[u8], identity: &str, expected: &[String]) -> Vec<bool> {
         };
         let key = fidelity_cipher::derive_key(&salt, identity.as_bytes());
 
-        for (which, literal) in expected.iter().enumerate() {
+        for (which, value) in expected.iter().enumerate() {
             if recovered[which] {
                 continue;
             }
-            let cipher = fidelity_cipher::encrypt(&key, literal.as_bytes());
+            let cipher = match value.kind {
+                ExpectedKind::Text => fidelity_cipher::encrypt(&key, &value.plain),
+                ExpectedKind::Bytes => fidelity_cipher::encrypt_bytes(&key, &value.plain),
+            };
             let Some(head) = cipher.get(..MIN) else {
                 continue;
             };
@@ -283,12 +309,12 @@ fn recover(image: &[u8], identity: &str, expected: &[String]) -> Vec<bool> {
 /// so a run that reaches one constant passes and states how many it reached.
 /// A run that reaches none fails, because an extractor that recovers nothing
 /// is measuring itself rather than the artifact.
-fn report(expected: &[String], recovered: &[bool]) {
-    for (literal, found) in expected.iter().zip(recovered) {
+fn report(expected: &[Expected], recovered: &[bool]) {
+    for (value, found) in expected.iter().zip(recovered) {
         if *found {
-            println!("  RECOVERED {literal}");
+            println!("  RECOVERED {}", value.label);
         } else {
-            println!("  missing   {literal}");
+            println!("  missing   {}", value.label);
         }
     }
 
@@ -304,4 +330,52 @@ fn report(expected: &[String], recovered: &[bool]) {
         "{found} of {} guarded constants came out of the artifact, with no secret but the identity",
         expected.len()
     );
+}
+
+/// Parses a text value or a `hex:` byte value.
+fn parse_expected(argument: String) -> Result<Expected, String> {
+    let Some(hex) = argument.strip_prefix("hex:") else {
+        return Ok(Expected {
+            plain: argument.as_bytes().to_vec(),
+            label: argument,
+            kind: ExpectedKind::Text,
+        });
+    };
+
+    let mut pairs = hex.as_bytes().chunks_exact(2);
+    if !pairs.remainder().is_empty() {
+        return Err(String::from("a hex value must hold pairs of digits"));
+    }
+    let mut plain = Vec::with_capacity(hex.len() / 2);
+    for pair in &mut pairs {
+        let Some(high) = hex_digit(pair[0]) else {
+            return Err(String::from(
+                "a hex value holds a character that is not a digit",
+            ));
+        };
+        let Some(low) = hex_digit(pair[1]) else {
+            return Err(String::from(
+                "a hex value holds a character that is not a digit",
+            ));
+        };
+        plain.push((high << 4) | low);
+    }
+    if plain.len() < MIN {
+        return Err(format!("a value must hold {MIN} bytes or more"));
+    }
+    Ok(Expected {
+        label: argument,
+        plain,
+        kind: ExpectedKind::Bytes,
+    })
+}
+
+/// Converts one ASCII hex digit.
+const fn hex_digit(digit: u8) -> Option<u8> {
+    match digit {
+        b'0'..=b'9' => Some(digit - b'0'),
+        b'a'..=b'f' => Some(digit - b'a' + 10),
+        b'A'..=b'F' => Some(digit - b'A' + 10),
+        _ => None,
+    }
 }

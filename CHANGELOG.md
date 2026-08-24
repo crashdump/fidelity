@@ -9,6 +9,114 @@ This file records released versions and the current release candidate. The work 
 release lives in the git history and in `tests/platform/README.md`, which states what each platform
 proved and what it did not.
 
+## 0.4.0 - 2026-08-24
+
+This release is the v1 beta. It adds three detectors, resolves the last planned platform cell, and
+extends guarded values to Windows and byte strings. It also closes runtime and host-integration
+gaps before the v1 release proof.
+
+### Detector coverage
+
+- `instrumentation.local_agent` sends a bounded protocol query to loopback. A port alone creates no
+  finding. The peer must answer a Frida-compatible WebSocket exchange.
+- The loopback probe uses no DNS or non-loopback address. It caps its read and its deadline. It runs
+  in a full scan rather than the synchronous cheap scan.
+- Frida 17.17.0 supplies the real hostile control on macOS. An exact protocol control and an
+  unrelated service run on all five platforms.
+- `instrumentation.image_catalog` compares executable file mappings with the loader catalog on
+  Linux, Android, and Windows. It reports `Medium` when a file-backed image bypasses the loader.
+- The image-catalog clean controls cover normal late loads and runtime code. The hostile control
+  maps a valid library image without loader registration.
+- `device_compromise.verified_boot` reads the Android verified-boot color and the vbmeta device
+  state. It uses `ro.boot.flash.locked` only as a compatibility fallback.
+- An unlocked or unverified boot reports `Medium`. A missing or conflicting answer reports a `Low`
+  health finding rather than a clean device.
+- A locked physical device supplies the verified-boot clean control. The hostile property states
+  have deterministic controls. A real unlocked-device control remains open.
+- Each new detector gets a narrow capability. The release adds no detector plug-in system and no
+  second platform pattern.
+
+### Guarded values
+
+- Windows gains code-identity binding for `guarded!()`. The binding uses the SHA-256 digest of the
+  Authenticode signer certificate that the Windows probe already reports.
+- A trusted signer, another signer, and an unsigned image supply the Windows controls. The wrong
+  signer returns a wrong guarded value with no error path.
+- `guarded_bytes!()` protects a byte-string literal and returns a bounded value that wipes on drop.
+  It permits data that the printable string alphabet cannot hold.
+- The byte form keeps one inline reader per call site. It shares the existing key schedule and adds
+  no common decryption function.
+- The artifact tests reject plaintext and recover each value with the correct public inputs. They
+  recover no value with another identity, and two seeds produce two different artifacts.
+
+### Runtime and failure contracts
+
+- The cheap and full scan sets become different for the first time. The loopback detector runs in
+  the full set, and the other bounded detectors remain in both sets.
+- `require_complete_coverage()` runs each required detector before success. This includes a bounded
+  full-only detector when its category is required.
+- `deny_until_first_full_scan()`, `first_full_scan_complete()`, and the bounded wait gain controls
+  against the real full-only detector.
+- After a resume, the worker completes `scan_all()` before it applies a pending host callback or a
+  pending stop action.
+- The resume control suspends the worker during its wait and during an active scan. Both paths must
+  put a new full scan before host code.
+- A capability error remains `Observation::Failed` through start and every worker path. It becomes
+  a `Low` health finding and never a clean or unsupported result.
+- A detector panic stays inside that detector. The worker continues the scan and later cycles.
+- The loopback deadline, a callback panic, a failed platform read, and a worker setup failure each
+  get a deterministic control.
+- The implementation keeps two scan sets and one worker loop. It adds no general task scheduler.
+
+### Platform completion
+
+- `MachineHost` distinguishes a virtual machine from a simulator or an emulator.
+  `SimulatedEnvironment` carries the new public evidence without a false monitor claim.
+- iOS gains `emulation`. A physical device and a simulator supply the `machine_host` controls.
+- The iOS `device` cell becomes `no`. The iOS 26.5 SDK exposes no public compromise state, and a
+  provisioned iOS 26.6.1 application receives `EPERM` from `kern.securelevel`.
+- The release adds no jailbreak path list. A missing public state stays visible as `Unsupported`.
+- The clean iOS device also proves a signed team identity and the bounded local-agent exchange.
+- A physical Android device proves its build state, hardware host, signed archive, guarded values,
+  and system-driven resume.
+- The Android harness runs on ARM64 hardware. The cross-check builds ARM64 and x86-64 Android
+  targets. The minimum release gets a build check.
+- The project guests supply the hostile Linux and Windows `machine_host` controls. The clean
+  physical-host controls remain open.
+- Linux and Windows run the detector controls on ARM64. Windows also runs selected controls through
+  x64 emulation and signs the identity subjects in the guest.
+- macOS 26 on ARM64 gets all runtime controls on a physical host and the project guest.
+- The platform record must show each required control on all five platforms. A platform gets the
+  supported label only after its record is complete.
+
+### Tauri and host integration
+
+- The Tauri adapter gains fallible handle access with a typed error. A missing plug-in no longer
+  needs a panic as the only answer.
+- The Rust extension supplies direct methods for the denial check and a `UiAbuse` report. It still
+  exposes no WebView command or frontend event.
+- A Tauri mock application proves setup, state access, a denial, a host report, and an initial
+  full-scan wait.
+- The package gate checks both fallible access paths and the compatibility panic path on macOS.
+
+### Compatibility and release proof
+
+- The project accepts the expanded Rust surface and the Serde shape as the v1 compatibility
+  baseline. The surface and schema tests hold that baseline.
+- The existing process-map fuzz target reaches the new image-catalog classification. The release
+  run covers all 14 hostile-input targets.
+- The sanitizers cover the socket boundary and all probe code. Miri covers the new portable state
+  and detector paths. The package gate covers each facade feature and both Tauri access paths.
+- The release publishes all versioned workspace crates and `tauri-plugin-fidelity` to crates.io.
+  A clean consumer builds `fidelity` on Rust 1.85 and the adapter on Rust 1.88.
+- The dependency graphs must contain no RustSec vulnerability, unaccepted source, remote runtime
+  client, or accidental WebView surface.
+- `main`, the `v0.4.0` tag, the manifest version, the test record, and the public release must
+  identify one commit.
+
+This release adds no new category, remote service, remote attestation, proactive OS enforcement,
+language binding, or obfuscation.
+
 ## 0.3.0 - 2026-08-21
 
 - Hosts can require complete platform detector coverage for a category. An unsupported, absent, or

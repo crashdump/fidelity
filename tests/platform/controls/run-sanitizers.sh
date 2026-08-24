@@ -53,11 +53,19 @@ if [ "$ASKED" = "miri" ] || [ "$ASKED" = "just-miri" ]; then
     # 100000 wrong keys and one hashes a long message, and an interpreter cannot
     # finish any of them. Excluding the whole crate would lose 28 tests that
     # take five seconds, so the exclusion is by name and not by crate.
+    #
+    # Miri cannot call the operating-system poll function. Four local-agent
+    # tests use it through `TcpStream::connect_timeout`, and the real platform
+    # controls cover that boundary on all five systems.
     MIRIFLAGS=-Zmiri-disable-isolation cargo "+$NIGHTLY_TOOLCHAIN" miri test \
         -p fidelity-formats -p fidelity-types -p fidelity-core \
         -p fidelity-detect -p fidelity-cipher -p fidelity-engine \
         -p fidelity-testkit -- \
         --skip every_wrong_key_gives_a_well_formed_value \
         --skip a_wrong_key_almost_never_returns_the_literal \
-        --skip the_long_message_vector_matches
+        --skip the_long_message_vector_matches \
+        --skip a_frida_websocket_exchange_reports_a_local_agent \
+        --skip an_unrelated_service_reports_no_local_agent \
+        --skip a_closed_port_reports_no_local_agent \
+        --skip a_stalled_endpoint_reports_a_failure_at_the_deadline
 fi

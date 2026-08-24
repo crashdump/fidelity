@@ -30,19 +30,21 @@ environment and applies a response that the host application selects.
 
 Every v1 category holds a detector. Five platforms run, each with real clean and hostile controls.
 All five compare executable memory against a baseline that `start()` captured, and all five read
-tracer state. Four read the machine that runs the system, and iOS is the one that does not. macOS
-adds `guarded!()`, and Linux, Android, and Windows add unaccounted code. All five read the dispatch
-table of the image that holds the host, so a redirected call is a finding that the baseline misses.
+tracer state and the machine that runs the system. macOS adds `guarded!()`, and Linux, Android, and
+Windows add unaccounted code. All five read the dispatch table and query a bounded local-agent
+endpoint. Linux, Android, and Windows compare executable images with the loader catalog. Android
+also reads verified boot. A redirected call is a finding that the baseline misses.
 Four of them find that image as the main image, and Android reads the library that holds Fidelity,
 because an app forks from zygote. `UiAbuse` takes a host report and reads no
 operating system, so it sits off the platform axis, and the coverage matrix holds no row for it.
-The iOS results come from the simulator, so a device has still to confirm them. The Windows results
-come from the QEMU guest that `tests/platform/vm/windows/` builds, and the identity controls of that
-platform sign the subject in the guest, because the tier reads the signature of the running image.
+An iPhone confirms iOS identity and the clean machine-host result. The simulator supplies the other
+iOS results and the hostile machine-host control. The Windows results come from the QEMU guest that
+`tests/platform/vm/windows/` builds. Its identity controls sign the subject in the guest, because
+the tier reads the signature of the running image.
 The macOS machine-host control needs a guest too, and `tests/platform/vm/macos/` builds that one.
-Linux, Windows, and Android hold the hostile machine-host control alone, because every control of
-those three runs in a guest or an emulator. No platform is supported yet, because that needs the
-full release tests.
+Linux and Windows hold the hostile machine-host control alone, because every control of those two
+runs in a guest. Android holds both controls with an emulator and a physical phone. No platform is
+supported yet, because that needs the full release tests.
 
 Capabilities are traits, in `fidelity-core/src/capability/`. Operating systems are crates, under
 `crates/probe/`. `docs/plan/06-delivery.md` holds both axes and the shape that every probe crate
@@ -136,7 +138,7 @@ addition and a size trigger conflict, the addition lands and the trigger moves.
 | Path | Role | Size trigger |
 |---|---|---|
 | `README.md` | What the library is, and the first example | 100 lines |
-| `docs/plan/` | Normative specification, 8 files | 600 lines per file |
+| `docs/plan/` | Normative specification, 8 files | 650 lines per file |
 | `docs/adr/` | One enduring constraint and its reason | 60 lines per file |
 | `docs/research/` | Non-normative notes: operating systems, and the vendor survey | 175 lines per file |
 
@@ -144,12 +146,11 @@ A size trigger is a question, not a wall. A file that passes its trigger gets on
 change: does this file still hold one role, or did it absorb a fact that another file owns? A good
 answer keeps every line, and it raises the number in the table. Say which answer you reached.
 
-Every number above rose on 2026-08-20, and the answer that raised them is on the record.
-`04-detectors-and-platforms.md` passed 500, and it still holds one role: its sections are the signal
-model, the excluded mechanisms, the identity tiers, one section for each detector, and the platform
-floors, which is what section 5 gives it. It grew because three detectors landed, and a section for
-each detector is what the file is for. The other three numbers rose by the same share, because three
-files sat within 5 lines of a trigger that the same growth had made too tight.
+Each number first rose on 2026-08-20, and the answer that raised it is on the record.
+`04-detectors-and-platforms.md` passed 600 on 2026-08-24, and it still holds one role. Its sections
+are the signal model, the excluded mechanisms, the identity tiers, one section for each detector,
+and the platform floors. It grew because three detectors landed. This result raises the plan
+trigger alone to 650 lines.
 
 Run `wc -l README.md CLAUDE.md docs/plan/*.md docs/adr/*.md docs/research/*.md` to see the corpus.
 It is about 2360 lines. Read the whole set for duplication when it passes 2900, because many files
@@ -176,6 +177,9 @@ nothing.
 
 ### Fixed rules
 
+- Use the smallest design that meets the current requirement. Do not add a mechanism for a possible
+  future need.
+- Do not trade correctness, safety, or a documented release test for fewer lines.
 - Do not add a new document without a decision from the product owner.
 - Do not add a roadmap, a FAQ, a vision statement, or a competitor comparison.
 - Do not paste research surveys back into the repository. The research was condensed on purpose.

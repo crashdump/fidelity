@@ -10,6 +10,8 @@ use core::ffi::{CStr, c_char, c_int, c_void};
 use fidelity_core::fact::dispatch::MAX_TARGETS;
 use fidelity_formats::elf;
 
+use super::catalog::{Phdr, PhdrInfo, iterate};
+
 const PT_LOAD: u32 = 1;
 const PT_DYNAMIC: u32 = 2;
 
@@ -19,33 +21,6 @@ const JUMP_SLOT: u32 = 1026;
 const JUMP_SLOT: u32 = 7;
 
 static ANCHOR: u8 = 0x1d;
-
-#[repr(C)]
-struct Phdr {
-    kind: u32,
-    flags: u32,
-    offset: u64,
-    vaddr: u64,
-    paddr: u64,
-    filesz: u64,
-    memsz: u64,
-    align: u64,
-}
-
-#[repr(C)]
-struct PhdrInfo {
-    base: u64,
-    name: *const c_char,
-    phdr: *const Phdr,
-    phnum: u16,
-}
-
-unsafe extern "C" {
-    fn dl_iterate_phdr(
-        callback: extern "C" fn(*mut PhdrInfo, usize, *mut c_void) -> c_int,
-        data: *mut c_void,
-    ) -> c_int;
-}
 
 struct OwnImage {
     anchor: u64,
@@ -115,7 +90,7 @@ fn find() -> Option<OwnImage> {
     let mut image = OwnImage::seeking(anchor);
     // SAFETY: the callback uses only the live local output value.
     unsafe {
-        dl_iterate_phdr(take_own_image, (&raw mut image).cast::<c_void>());
+        iterate(take_own_image, (&raw mut image).cast::<c_void>());
     }
     if image.found { Some(image) } else { None }
 }

@@ -4,10 +4,12 @@
 //! makes bounded slices from those segments. The safe ELF reader then walks
 //! the dynamic array and the jump-slot relocations.
 
-use core::ffi::{c_char, c_int, c_void};
+use core::ffi::{c_int, c_void};
 
 use fidelity_core::fact::dispatch::MAX_TARGETS;
 use fidelity_formats::elf;
+
+use super::catalog::{Phdr, PhdrInfo, iterate};
 
 const PT_LOAD: u32 = 1;
 const PT_DYNAMIC: u32 = 2;
@@ -16,33 +18,6 @@ const PT_DYNAMIC: u32 = 2;
 const JUMP_SLOT: u32 = 1026;
 #[cfg(target_arch = "x86_64")]
 const JUMP_SLOT: u32 = 7;
-
-#[repr(C)]
-struct Phdr {
-    kind: u32,
-    flags: u32,
-    offset: u64,
-    vaddr: u64,
-    paddr: u64,
-    filesz: u64,
-    memsz: u64,
-    align: u64,
-}
-
-#[repr(C)]
-struct PhdrInfo {
-    base: u64,
-    name: *const c_char,
-    phdr: *const Phdr,
-    phnum: u16,
-}
-
-unsafe extern "C" {
-    fn dl_iterate_phdr(
-        callback: extern "C" fn(*mut PhdrInfo, usize, *mut c_void) -> c_int,
-        data: *mut c_void,
-    ) -> c_int;
-}
 
 struct MainImage {
     found: bool,
@@ -100,7 +75,7 @@ pub(crate) fn read() -> Option<RawTargets> {
     let mut image = MainImage::default();
     // SAFETY: the callback uses only the live local output value.
     unsafe {
-        dl_iterate_phdr(take_main_image, (&raw mut image).cast::<c_void>());
+        iterate(take_main_image, (&raw mut image).cast::<c_void>());
     }
     if !image.found {
         return None;

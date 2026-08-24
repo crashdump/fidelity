@@ -31,11 +31,13 @@ mod baseline;
 mod dispatch;
 mod emulation;
 mod identity;
+mod image_catalog;
 mod injection;
+mod local_agent;
 mod sys;
 mod tracer;
 
-use fidelity_core::{Device, Environment, Lifecycle};
+use fidelity_core::{Device, Environment, Lifecycle, VerifiedBoot};
 use fidelity_types::Platform;
 
 /// The Windows view of the running process.
@@ -45,7 +47,10 @@ pub struct WindowsEnvironment;
 impl WindowsEnvironment {
     /// Creates the Windows environment.
     #[must_use]
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
+        // The first Windows socket call loads fixed network code. Load it
+        // before `start()` captures its executable-memory baseline.
+        let _ = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0));
         Self
     }
 }
@@ -67,6 +72,8 @@ impl Environment for WindowsEnvironment {
 // grants that user administrator rights by design. The question does not apply
 // rather than waiting for code.
 impl Device for WindowsEnvironment {}
+
+impl VerifiedBoot for WindowsEnvironment {}
 
 // Windows asks nothing of the worker thread, so the default answers.
 impl Lifecycle for WindowsEnvironment {}

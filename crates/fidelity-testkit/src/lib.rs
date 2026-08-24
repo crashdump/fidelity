@@ -13,9 +13,10 @@
 use std::sync::{Mutex, PoisonError};
 
 use fidelity_core::{
-    Baseline, CodeIdentity, CodeOrigin, CodeRegions, Device, Dispatch, DispatchTargets, Emulation,
-    Environment, Identity, IdentityMatch, Injection, Lifecycle, MachineHost, Observation,
-    SystemBuild, Tracer, TracerState,
+    Baseline, BootVerification, CodeIdentity, CodeOrigin, CodeRegions, Device, Dispatch,
+    DispatchTargets, Emulation, Environment, Identity, IdentityMatch, ImageCatalog,
+    ImageCatalogState, Injection, Lifecycle, LocalAgent, LocalAgentState, MachineHost, Observation,
+    SystemBuild, Tracer, TracerState, VerifiedBoot,
 };
 use fidelity_types::{ExpectedIdentity, Platform};
 
@@ -36,6 +37,9 @@ pub struct FakeEnvironment {
     code_regions: Observation<CodeRegions>,
     dispatch_targets: Observation<DispatchTargets>,
     system_build: Observation<SystemBuild>,
+    boot_verification: Observation<BootVerification>,
+    image_catalog: Observation<ImageCatalogState>,
+    local_agent: Observation<LocalAgentState>,
     machine_host: Observation<MachineHost>,
 }
 
@@ -92,6 +96,9 @@ impl FakeEnvironment {
             code_regions: Observation::Unsupported { reason: NOT_STATED },
             dispatch_targets: Observation::Unsupported { reason: NOT_STATED },
             system_build: Observation::Unsupported { reason: NOT_STATED },
+            boot_verification: Observation::Unsupported { reason: NOT_STATED },
+            image_catalog: Observation::Unsupported { reason: NOT_STATED },
+            local_agent: Observation::Unsupported { reason: NOT_STATED },
             machine_host: Observation::Unsupported { reason: NOT_STATED },
         }
     }
@@ -139,6 +146,27 @@ impl FakeEnvironment {
     #[must_use]
     pub fn with_system_build(mut self, observation: Observation<SystemBuild>) -> Self {
         self.system_build = observation;
+        self
+    }
+
+    /// States what Android reports about boot verification.
+    #[must_use]
+    pub fn with_boot_verification(mut self, observation: Observation<BootVerification>) -> Self {
+        self.boot_verification = observation;
+        self
+    }
+
+    /// States whether a compatible local instrumentation endpoint answered.
+    #[must_use]
+    pub fn with_local_agent(mut self, observation: Observation<LocalAgentState>) -> Self {
+        self.local_agent = observation;
+        self
+    }
+
+    /// States whether the loader accounts for each executable file image.
+    #[must_use]
+    pub fn with_image_catalog(mut self, observation: Observation<ImageCatalogState>) -> Self {
+        self.image_catalog = observation;
         self
     }
 
@@ -212,6 +240,24 @@ impl Identity for FakeEnvironment {
 impl Device for FakeEnvironment {
     fn system_build(&self) -> Observation<SystemBuild> {
         self.system_build.clone()
+    }
+}
+
+impl VerifiedBoot for FakeEnvironment {
+    fn boot_verification(&self) -> Observation<BootVerification> {
+        self.boot_verification.clone()
+    }
+}
+
+impl LocalAgent for FakeEnvironment {
+    fn local_agent_state(&self) -> Observation<LocalAgentState> {
+        self.local_agent.clone()
+    }
+}
+
+impl ImageCatalog for FakeEnvironment {
+    fn image_catalog_state(&self) -> Observation<ImageCatalogState> {
+        self.image_catalog.clone()
     }
 }
 

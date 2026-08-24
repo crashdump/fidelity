@@ -343,6 +343,44 @@ fn the_harness_names_every_control() {
 }
 
 #[test]
+fn each_open_hardware_arm_has_a_harness_control() {
+    let harness = read("tests/platform/run.sh");
+    let controls = [
+        ("Linux", "machine-hardware-linux"),
+        ("Windows", "machine-hardware-windows"),
+        ("Android", "machine-hardware-android"),
+    ];
+
+    for (system, control) in controls {
+        assert!(
+            harness.contains(&format!("run {system} {control} ")),
+            "the harness must run {control} on a verified physical {system} host"
+        );
+    }
+}
+
+#[test]
+fn the_android_harness_runs_both_emulator_architectures() {
+    let shell = read("tests/platform/run.sh");
+    let gradle = read("crates/probe/fidelity-probe-android/android/build.gradle.kts");
+    let architectures = [
+        ("aarch64-linux-android", "arm64-v8a"),
+        ("x86_64-linux-android", "x86_64"),
+    ];
+
+    for (target, abi) in architectures {
+        assert!(
+            shell.contains(&format!("ANDROID_TARGET={target}")),
+            "the platform harness must select {target}"
+        );
+        assert!(
+            gradle.contains(target) && gradle.contains(abi),
+            "the instrumented harness must package {abi} from {target}"
+        );
+    }
+}
+
+#[test]
 fn every_control_that_the_record_names_exists() {
     // A record that points at a control nobody can find is a record of nothing.
     // The controls are the part that makes a claim reproducible after the

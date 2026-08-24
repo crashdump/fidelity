@@ -50,7 +50,7 @@ object Harness {
     /**
      * The names of the reads that one cycle makes, in the order it makes them.
      *
-     * This is `Detectors::scan_cheap`, and all eight of it. Until 2026-08-20 it
+     * This is `Detectors::scan_all`, and all eleven of it. Until 2026-08-20 it
      * held six, and the two it dropped went unmeasured on every run.
      */
     val READS = arrayOf(
@@ -60,8 +60,11 @@ object Harness {
         "code_regions",
         "code_origin",
         "dispatch_targets",
+        "image_catalog",
         "system_build",
+        "boot_verification",
         "machine_host",
+        "local_agent",
     )
 
     /** The fastest cost of one read of the cycle, in microseconds, by index. */

@@ -34,7 +34,7 @@ The capability and system names match the coverage matrix exactly, because the t
 | `identity` | `integrity.platform_trust` | macOS | macOS 26, 2026-08-18 | a distributed image, which a person measured, because this tier needs a certificate that the machine anchors | `identity-adhoc-macos`: a local build carries the ad-hoc signature that the linker writes, which fails `anchor apple generic`, and the tier reports `Medium` and `SecCodeCheckValidity returned -67050`. A repackaged image reports the same. |
 | `identity` | `integrity.expected_identity` | macOS | macOS 26, 2026-08-18 | `identity-clean-macos`: the running image, pinned to its own cdhash, stays clean. A code requirement may name a cdhash rather than a signer, so this arm needs no certificate. A distributed image and a second certificate of the same team both stay clean, and a person measured those two. | `identity-repackaged-macos`: a copy that another party re-signs under another identifier keeps every byte of the code, gets another cdhash, and reports `High`. `identity-pinned-other-macos`: the same image against a team it does not carry reports `High`. Both deny the operation. |
 | `identity` | `integrity.platform_trust` | iOS | iOS 26, simulator | the tier reports `Unsupported`, because the iOS SDK ships no `SecCode.h`, checked 2026-08-10 | none. An `Unsupported` tier creates no finding, so it has no hostile control. |
-| `identity` | `integrity.expected_identity` | iOS | iOS 26, simulator, 2026-08-18 | `identity-clean-ios`: an ad-hoc build names no team, and an absent host value reports `Unsupported` and allows the operation | `identity-pinned-team-ios`: a pinned team, against that same image, reports `High` and denies the operation |
+| `identity` | `integrity.expected_identity` | iOS | iOS 26 simulator and iPhone 12 Pro on iOS 26.6.1, 2026-08-24 | `identity-device-ios`: the provisioned image names team `2RX6592SS2`, reports clean, and allows the operation. `identity-clean-ios` keeps the ad-hoc simulator arm. | `identity-device-ios`: the same image against another team reports `High` and denies the operation. `identity-pinned-team-ios` keeps the ad-hoc simulator arm. |
 | `identity` | `integrity.platform_trust` | Android | Android 37, emulator | the tier reports `Unsupported`, because Android accepts any self-signed certificate and anchors none | none. An `Unsupported` tier creates no finding, so it has no hostile control. |
 | `identity` | `integrity.expected_identity` | Android | Android 37, emulator | an instrumented test reads the certificate of its own archive, and it equals what `PackageManager` reports for the same package | a pinned digest against another certificate, which reports, `High` |
 | `identity` | `integrity.platform_trust` | Linux | Debian 13, kernel 6.12, in the QEMU guest, 2026-08-13 | both arms ran. On an ordinary filesystem the ioctl answers that the image carries no fs-verity, and the tier reports `Unsupported`. On an ext4 filesystem made with `-O verity`, and with verity enabled on the image, the tier reports `Accepted`. | none. This tier accepts or states a gap, and it creates no finding either way. |
@@ -54,6 +54,14 @@ The capability and system names match the coverage matrix exactly, because the t
 | `injection` | `instrumentation.unaccounted_code` | Linux | Debian, glibc | a plain process holds no anonymous executable region | an `LD_PRELOAD` agent maps 4 KiB, reports, `Medium` |
 | `injection` | `instrumentation.unaccounted_code` | Android | Android 37, emulator, 2026-08-18 | `inject-clean-android`: a plain run accounts for every executable region it holds. A real runtime names its code caches `[anon_shmem:dalvik-jit-code-cache]`, so they stay distinct from anonymous memory. | `inject-hostile-android`: `agent.so`, through `LD_PRELOAD`, maps 16 KiB with no file behind it, reports `Medium`, `unaccounted executable memory: 16384 bytes, region count 1` |
 | `injection` | `instrumentation.unaccounted_code` | Windows | Windows 11 Pro, build 10.0.26200, ARM64, in the QEMU guest, 2026-08-15 | a plain run accounts for every executable region that it holds | `inject-windows.c` maps 64 KiB with no file behind it, before the subject runs its first instruction, reported `Medium`, `unaccounted executable memory: 65536 bytes, region count 1`, and the operation denied |
+| `image_catalog` | `instrumentation.image_catalog` | Linux | Debian 13 in the QEMU guest, ARM64, 2026-08-24 | `image-catalog-clean-linux`: the loader accounts for each executable file image, and the operation is allowed | `catalog-map.c` maps a second executable view of its valid shared library without loader registration. The detector reports `Medium`, `UnregisteredImage`, 73728 bytes, and one region. |
+| `image_catalog` | `instrumentation.image_catalog` | Android | Samsung SM-A065F on Android 16, ARM64, 2026-08-24 | `image-catalog-clean-android`: the loader accounts for each executable file image, and the operation is allowed | `catalog-map.c` maps a second executable view of its valid shared library without loader registration. The detector reports `Medium`, `UnregisteredImage`, 8192 bytes, and one region. |
+| `image_catalog` | `instrumentation.image_catalog` | Windows | Windows 11 Pro, build 10.0.26200, ARM64 guest, 2026-08-24 | `image-catalog-clean-windows`: `K32EnumProcessModules` accounts for each executable `MEM_IMAGE` allocation. The x64 process under emulation reports the same clean catalog. | `catalog-map-windows.c` creates an image section from the subject and maps it before the first instruction. The loader does not register it. ARM64 reports 458752 bytes, and x64 reports 487424 bytes. Each reports one `UnregisteredImage` region at `Medium`. |
+| `local_agent` | `instrumentation.local_agent` | macOS | macOS 26, ARM64, 2026-08-24 | an unrelated HTTP service answers on port 27042 and reports clean | Frida server 17.17.0 answers the WebSocket exchange. The detector reports `Medium`, `LocalInstrumentationAgent`, and denies. The deterministic protocol control reports the same result. |
+| `local_agent` | `instrumentation.local_agent` | iOS | iOS 26.5 simulator and iPhone 12 Pro on iOS 26.6.1, 2026-08-24 | an unrelated service answers in the process and reports clean on both systems | the compatible WebSocket control answers in the process on both systems. The detector reports `Medium`, `LocalInstrumentationAgent`, and denies. |
+| `local_agent` | `instrumentation.local_agent` | Linux | Debian 13 in the QEMU guest, ARM64, 2026-08-24 | an unrelated HTTP service answers on port 27042 and reports clean | the compatible WebSocket control reports `Medium`, `LocalInstrumentationAgent`, and denies. |
+| `local_agent` | `instrumentation.local_agent` | Android | Samsung SM-A065F on Android 16, ARM64, 2026-08-24 | an unrelated HTTP service answers on port 27042 and reports clean | the compatible WebSocket control reports `Medium`, `LocalInstrumentationAgent`, and denies. |
+| `local_agent` | `instrumentation.local_agent` | Windows | Windows 11 Pro, build 10.0.26200, ARM64 guest, 2026-08-24 | an unrelated HTTP service answers on port 27042 and reports clean | the compatible WebSocket control reports `Medium`, `LocalInstrumentationAgent`, and denies. |
 | `dispatch` | `instrumentation.dispatch_targets` | Linux | Debian 13, kernel 6.12, in the QEMU guest, 2026-08-19 | `dispatch-clean-linux`: the `redirect` example runs 40 s with no finding. The main image binds its dispatch table fully, so every entry holds its start value and none moves. | `dispatch-hostile-linux`: `hook.c` arrives with `LD_PRELOAD`, waits 3 s, then points the `memcpy` entry of the main image at a forwarder of its own, which calls the real one, so the subject keeps running. The runtime baseline stays clean, and this detector reports after 6.4 s, `Medium`, `dispatch targets that moved after start: 1`. |
 | `dispatch` | `instrumentation.dispatch_targets` | Windows | Windows 11 Pro, build 10.0.26200, ARM64, in the QEMU guest, 2026-08-19 | `dispatch-clean-windows`: the `redirect` example runs 40 s with no finding. Measured on the same guest: the main module holds 71 import entries, none outside a loaded image and none that moved over three seconds, because Windows binds the static import table at load. | `dispatch-hostile-windows`: `iat-hook-windows.c` redirects the `SetUnhandledExceptionFilter` import of the running subject to an address that another import already holds, from outside with `WriteProcessMemory`. The import sits in a data section, so the runtime baseline stays clean, and this detector reports after 5.8 s, `Medium`, `dispatch targets that moved after start: 1`. `dispatch-hidden-windows`, on the same guest, 2026-08-20: `hidden-iat-hook-windows.c` writes zero to one unused startup import, which is a fake terminator. It redirects a later import in the same library, behind that zero. A walk of the address table stopped at the zero and reported clean. The reader counts the lookup table, so both slots stay in the snapshot. It reports `Medium`, `dispatch targets that moved after start: 2`. |
 | `dispatch` | `instrumentation.dispatch_targets` | macOS | macOS 26.5.2, ARM64, 2026-08-20 | `dispatch-clean-macos`: the `redirect` example runs 40 s with no finding. The main image carries `LC_DYLD_CHAINED_FIXUPS`, so the loader bound every import before the process ran, and 73 to 96 pointers sit in `__got` with no lazy table beside them | `dispatch-hostile-macos`: `hook-macos.c` arrives with the image, waits 3 s, then points the `memcpy` pointer of the main image at a forwarder of its own. The detector reports `Medium`, `dispatch targets that moved after start: 1`, after 6.7 s. The runtime baseline stayed clean over 40 s in the same conditions, which is the result that this detector exists for. |
@@ -62,8 +70,10 @@ The capability and system names match the coverage matrix exactly, because the t
 | `emulation` | `virtualization.machine_host` | macOS | macOS 26.5 bare metal and macOS 26.6.2 in the guest, 2026-08-18 | `machine-hardware-macos`: this development machine, a MacBookPro18,4, reports `kern.hv_vmm_present=0`, so the detector reports clean and the operation is allowed | `machine-guest-macos`: the same binary inside the Virtualization.framework guest that `tests/platform/vm/macos/` builds reports `kern.hv_vmm_present=1`, and the detector reports `Medium`, `the kernel reports kern.hv_vmm_present=1, so a virtual machine monitor runs this system`, and the operation is denied |
 | `emulation` | `virtualization.machine_host` | Linux | Debian 13, kernel 6.12, in the QEMU guest, 2026-08-19 | none. This project owns no bare-metal Linux, and every Linux control runs in a guest. The gaps table below holds it. | `machine-guest-linux`: the guest reports `sys_vendor=QEMU` and `product_name=QEMU Virtual Machine`, and the detector reports `Medium`, `the firmware names the machine QEMU`, and the operation is denied. A second monitor covers the other source: an ARM64 Linux guest under the Apple hypervisor, which OrbStack runs, exposes no `/sys/class/dmi` at all and holds twelve virtio devices, and the same binary there reports `Medium`, `the kernel holds a virtio device, which needs a monitor to answer it`. That arm is manual, because it needs a container runtime that the guest set does not hold. `machine-masked-linux`, on the same guest, 2026-08-20, holds the third case: a read that fails. A user and mount namespace holds a fresh tmpfs over `/sys/class/dmi`, with a file named `id` in it. A read of `sys_vendor` then fails with `ENOTDIR`. The detector reports `Low`, `DetectorHealth`, `the firmware read failed: Not a directory (os error 20)`, because a failed read reports its health and never the hardware. |
 | `emulation` | `virtualization.machine_host` | Windows | Windows 11 Pro, build 10.0.26200, ARM64, in the QEMU guest, 2026-08-19 | none. This project owns no bare-metal Windows, and every Windows control runs in the guest. The gaps table below holds it. | `machine-guest-windows`: `GetSystemFirmwareTable` with the `RSMB` provider returns a 383-byte table whose System Information structure names `QEMU` and `QEMU Virtual Machine`, and the detector reports `Medium`, `the firmware names the machine QEMU`, and the operation is denied. The captured table is the fixture that the reader tests against. |
-| `emulation` | `virtualization.machine_host` | Android | Android 37, emulator, 2026-08-19 | none. This project owns no physical Android device, and both system images are emulators. The gaps table below holds it. | `machine-emulator-android`: the image reports `ro.boot.qemu=1`, `ro.build.characteristics=emulator`, and `ro.hardware=ranchu`, and the detector reports `Medium`, `the bootloader reports ro.boot.qemu=1`, and the operation is denied |
-| `device` | `device_compromise.system_build` | Android | Android 36 and 37, emulators | a Play Store system image, which reports `release-keys` and `ro.debuggable=0`, and stays clean | a Google APIs system image, which reports `dev-keys` and `ro.debuggable=1`, and reports, `Medium` |
+| `emulation` | `virtualization.machine_host` | Android | Android 37 emulator and Samsung SM-A065F, 2026-08-24 | `machine-hardware-android`: the physical phone reports no emulator marker, and the detector reports clean | `machine-emulator-android`: the image reports `ro.boot.qemu=1`, `ro.build.characteristics=emulator`, and `ro.hardware=ranchu`, and the detector reports `Medium` |
+| `emulation` | `virtualization.machine_host` | iOS | iOS 26.5 simulator and iPhone 12 Pro on iOS 26.6.1, 2026-08-24 | `machine-device-ios`: the phone reports `hw.machine=iPhone13,3`, and the detector reports clean | `machine-simulator-ios`: the simulator reports `hw.machine=arm64`. The detector reports `Medium`, carries `SimulatedEnvironment`, and denies the operation. |
+| `device` | `device_compromise.system_build` | Android | Android 36 and 37 emulators, and Samsung SM-A065F | the physical phone reports `release-keys` and `ro.debuggable=0`, and stays clean | a Google APIs system image reports `dev-keys` and `ro.debuggable=1`, and reports `Medium` |
+| `verified_boot` | `device_compromise.verified_boot` | Android | Samsung SM-A065F on Android 16, 2026-08-24 | `verified-boot-clean-android`: the phone reports `green`, `locked`, and `1`, and the detector reports clean | none. The hostile arm needs an unlocked device. The gaps table below holds it. |
 | none, the host reports | `ui_abuse.host_report` | any | macOS 26 and ARM64, 2026-08-19 | `interface-clean`: a runtime that no host reported to leaves the slot at `NotRun`, which states the absence of a report, and the operation is allowed | `interface-overlay`: one call to `report_ui_abuse(UiObservation::Overlay)` reports `Medium`, `the host reports that another application drew over its window`, and the operation is denied before the call returns. Both halves run on any machine, because no operating system answers this category. [Detectors and platforms](../../docs/plan/04-detectors-and-platforms.md#the-user-interface) holds the measurement that decided that. |
 | `lifecycle` | none | macOS | macOS 26 | a prepared worker thread reports the utility class, and an untouched thread does not. `resume-after-freeze`, on macOS 26.5.2 and ARM64, 2026-08-19: a freeze of 20.2 s moved no scan, and the first scan after the resume landed 0 ms after it | none. The capability reports no finding, so it has no hostile control. |
 | `lifecycle` | none | iOS | iOS 26, simulator | the same two controls, in the simulator. `resume-after-freeze-ios`, in an iOS 18.4 simulator, 2026-08-19: a freeze of 20.0 s moved no scan, and the first scan after the resume landed 0 ms after it | none. The capability reports no finding, so it has no hostile control. |
@@ -356,7 +366,7 @@ copy. The Apple form is checked for whitespace only, because this project has no
 characters a team identifier holds.
 
 End to end on Android 37, on the emulator: Gradle now passes `android:` with the debug certificate
-digest, the instrumented suite stays at 8 of 8, the guarded constant still reads `6170692e`, and
+digest, all 10 instrumented tests pass, the guarded constant still reads `6170692e`, and
 `controls/repackage-android.sh` still gives another value, `79332e2d`, with no error.
 
 ## Cost
@@ -375,16 +385,15 @@ design:
   does stop at the missing entitlements slot, and `otool -l` confirms the image carries a
   signature of 3664 bytes with no entitlements.
 - **A shell binary cannot measure Android.** It maps no archive, so its identity read stops at the
-  gap after 52 us. The instrumented harness measures an application process instead: 542 us for one
-  identity read, and 2.5 ms for one worker cycle. The cycle is 14 times the shell figure, because a
-  real application maps far more regions and two reads walk the whole mapping table.
+  gap after 52 us. The instrumented harness measures an application process. The physical Samsung
+  SM-A065F reports about 4.0 ms for one identity read. Its v0.4.0 worker cycle costs between
+  22.857 ms and 23.647 ms.
 
-The Android ceilings are a test rather than a note.
-`HarnessTest.the_identity_read_stays_inside_its_recorded_ceiling` fails above 4 ms for one identity
-read or 20 ms for one cycle. Both hold about eight times the measured value, because an emulator
-under test is not a quiet machine. The rule was broken on purpose and it failed as it should. That
-row then failed both runs of 2026-08-20, and [the section below](#the-android-cost-ceiling) holds
-what it turned out to be.
+The Android cycle ceiling is a test rather than a note.
+`HarnessTest.the_worker_cycle_stays_inside_its_recorded_ceiling` fails above 30 ms. The cycle reads
+identity twice, so a second identity ceiling tests the same cost twice. The rule was broken on
+purpose, and it failed as it should. [The section below](#the-android-cost-ceiling) holds the test
+record.
 
 ## The Android cost ceiling
 
@@ -409,10 +418,10 @@ spread falls from 118 percent to 3 percent. `RUNS` in the harness is now 100, an
 matches `crates/probe/measure.rs`. That loop reports a mean, which every sample improves, and this
 one reports a minimum, which needs enough samples to find the floor.
 
-**A fresh emulator reports the recorded number.** The budget records 510 us for one identity read
-and 2.4 ms for one cycle, from 2026-08-11. A fresh instance of the AVD that the recipe above names
-reports 549 us to 849 us and 2.86 ms to 2.93 ms over 16 runs. No read got slower, and the budget
-stands as written.
+**A physical phone sets the release limit.** A Samsung SM-A065F on Android 16 reported 4.041 ms,
+4.096 ms, and 4.007 ms for one identity read on 2026-08-24. Its first two cycle results were
+19.147 ms and 19.238 ms before v0.4.0. The three v0.4.0 reads move it to 22.857 ms and 23.647 ms.
+The 30 ms ceiling is 0.6 percent of one five-second cycle.
 
 **The AVD decides the number, so a record names its AVD.** The two AVDs above differ by 2.5 times.
 They differ in API level and in page size, and a 16 KiB page changes what a mapping table holds,
@@ -441,14 +450,10 @@ is what showed that the measurement was at fault rather than the code. A cycle i
 one number named no cause at all.
 
 **The cycle measured six of eight reads, and a review found that on 2026-08-20.**
-`Detectors::scan_cheap` runs eight detectors, and both the harness cycle and every `cost` example
-stopped at `dispatch_targets`. So `system_build` and `machine_host` went unmeasured on every
-platform that answers them, the 20 ms gate covered neither, and every recorded cycle understated a
-real one. All eight now run in both places. The two cost little on Android, at 5 us and under 1 us,
-and the cycle moved from 2.89 ms to 3.06 ms on the same fresh emulator, so no recorded ceiling
-moves. macOS reports `machine_host` at 2.0 us. The lesson is the shape of the defect rather than
-its size: a measurement that names its own read list drifts from the code that owns it, and nothing
-compared the two.
+`Detectors::scan_cheap` ran eight detectors then, and both measurements stopped at
+`dispatch_targets`. Thus, `system_build` and `machine_host` went unmeasured. All eight then ran in
+both places. v0.4.0 adds two cheap reads and one full-only read. The architecture test now compares
+all eleven `scan_all` reads with the names and calls in the application control.
 
 One caution came out of the same day, and it applies to every absolute in
 [state and budgets](../../docs/plan/07-state-and-budgets.md#measured-cost). The macOS `cost`
@@ -513,18 +518,16 @@ Run with `controls/run-sanitizers.sh`. Results on macOS 26 and ARM64, on 2026-08
 
 | Tool | Scope | Result |
 |---|---|---|
-| AddressSanitizer | the whole workspace, 292 tests | clean |
-| ThreadSanitizer | the whole workspace, 292 tests | clean |
-| Miri | the seven crates that forbid unsafe code, 265 tests, 3 m 40 s | clean, on 2026-08-13 |
+| AddressSanitizer and ThreadSanitizer | the whole workspace, 1070 tests in total | clean, on 2026-08-24 |
+| Miri | seven crates, 369 tests and 6 doc tests, about 4 minutes | clean, on 2026-08-24 |
 
 **Miri had never run as the script described it.** The row above said 30 tests in one crate, and the
 script named seven. Measured on 2026-08-13: the script failed on the first crate that reads a clock,
 because `SystemTime::now` asks for a real-time clock and Miri refuses one under isolation. It also
 never finished `fidelity-cipher`, whose tests hash a long message and sweep 100000 wrong keys, which
 an interpreter cannot do. The script now disables isolation, and it excludes those three tests by
-name rather than dropping the crate, which keeps 28 of its tests at a cost of five seconds. The
-whole set is 265 tests, and `fidelity-formats` alone is 78 of them, so the old row understated the
-scope as well as the state.
+name rather than dropping the crate, which keeps 28 of its tests. That run held 265 tests, so the
+old row understated the scope as well as the state.
 
 **AddressSanitizer earned its place on the first run, and not by finding a memory bug.** It failed
 `two_reads_of_an_unchanged_process_add_no_region`, which asserts that two reads of a quiet process
@@ -539,9 +542,9 @@ agree. A walk that really moved would never produce an agreeing pair, so the bou
 broken walk. Confirmed by three consecutive clean sanitizer runs.
 
 Two limits are structural, not oversights. Miri cannot cross a foreign call, so it never reaches a
-probe crate, and the sanitizers are what cover the `unsafe` there. A doc-test cannot link under a
-sanitizer, because rustdoc omits the runtime, so the script excludes doc-tests and `cargo test
---workspace` runs them instead.
+probe crate. It also skips four socket tests because it cannot call the operating-system poll
+function. The sanitizers and the five real endpoint controls cover those boundaries. A doc-test
+cannot link under a sanitizer, so the ordinary workspace test runs it instead.
 
 ## The diagnostics test, and what made it flake
 
@@ -565,15 +568,17 @@ failed none in 150. The rebuild is therefore not the fix, and the code does not 
 
 ## The generated record
 
-`run.sh` ran the whole set on 2026-08-20 at 10:44 UTC, on macOS 26 and ARM64, with a booted iOS
-simulator, the Linux, Windows, and macOS guests running, and an Android 36 emulator attached. It
-wrote 117 rows: 112 passed, 4 `manual`, and 1 skipped. The skipped row is Miri, which keeps its own
-schedule. A run takes about 12 minutes, or 16 with `FIDELITY_WITH_MIRI=1`. Eleven clean controls
-spend 40 seconds each waiting for a finding that must never arrive. No row failed.
+`run.sh` ran the whole set on 2026-08-24 at 18:16 UTC, on macOS 26 and ARM64. It used an iOS 26.5
+simulator, an iPhone 12 Pro on iOS 26.6.1, a physical Android 16 phone, and all three project guests.
+It wrote 158 rows: 150 passed, 4 `manual`, and 4 skipped. The skipped rows are two physical host
+arms, the unlocked Android arm, and the Android emulator arm. This warmed run took about 26 minutes
+with `FIDELITY_WITH_MIRI=1`. A cold run on the same tree took about 33 minutes. Miri adds about 4
+minutes. Eleven clean controls spend 40 seconds each waiting for a finding that must never arrive.
+No row failed.
 
-**The run before it failed one row, and the measurement is what failed.** That run was the same day
-at 06:40 UTC. `android-instrumented` asserts that one cycle of an application process stays inside
-20 ms, and it read 22.6 ms. An earlier run of the same day read 23.5 ms at a load average of 19.6
+**An earlier run failed one row, and the measurement is what failed.** That run was on 2026-08-20 at
+06:40 UTC. `android-instrumented` asserts that one cycle of an application process stays inside
+20 ms, and it read 22.6 ms. Another run of the same day read 23.5 ms at a load average of 19.6
 on 10 cores, and a full run needs both guests, an emulator, and a simulator at once, so a loaded
 machine looked like the whole explanation. It was not.
 
@@ -597,10 +602,10 @@ UTC, and the `msrv-1.85 pass` row therefore described a tree with no `dispatch` 
 The code that arrived in those three hours did not build on 1.85, and the row said nothing, because
 the row was older than the defect. Nothing checks this, so the header date is the only guard.
 
-Sixty-four of the 115 are the hostile controls and their clean halves, which used to need a person.
-Each `caught after` figure is the time a host is exposed for, and it is the number that matters
-most. A macOS or a Linux row below holds two runs, because the worker interval carries jitter and a
-single figure would read as a constant:
+The automated rows include the hostile controls and their clean halves, which used to need a
+person. Each `caught after` figure is the time a host is exposed for, and it is the number that
+matters most. A macOS or a Linux row below holds two runs, because the worker interval carries
+jitter and a single figure would read as a constant:
 
 | Control | System | Answer |
 |---|---|---|
@@ -615,6 +620,9 @@ single figure would read as a constant:
 | `tracer-clean` | macOS | a run with no debugger |
 | `identity-clean-ios` | iOS | an ad-hoc build names no team, and an absent host value allows the operation |
 | `identity-pinned-team-ios` | iOS | a pinned team, against that same image, reported `High` and denied the operation |
+| `identity-device-ios` | iOS | a provisioned image accepts its own team and refuses another team at `High` |
+| `machine-device-ios` | iOS | a physical iPhone reports its product name and stays clean |
+| `machine-simulator-ios` | iOS | the simulator reports the host architecture and reports `Medium` |
 | `tracer-at-start-ios` | iOS | `lldb -b` launches the simulator binary itself, found by the initial scan |
 | `tracer-attaches-ios` | iOS | `lldb -p` attaches after start, caught after 5.5 s |
 | `tracer-clean-ios` | iOS | a run with no debugger |
@@ -726,7 +734,9 @@ needs reading is a control that nobody re-runs.
 | `controls/repackage-android.sh` | the repackage half of the extraction gate. It signs the instrumented test archive with a second key, reads the same guarded constant, and restores the original archive. |
 | the `extract` example of `fidelity-cipher` | the ceiling half. It reads guarded constants out of a built binary with no secret but the public code identity. |
 | `controls/run-ios.sh` | the runner that `cargo test --target aarch64-apple-ios-sim` needs. |
-| `controls/run-android.sh` | the runner that `cargo test --target aarch64-linux-android` needs. |
+| `controls/run-ios-device.sh` | the command-line iPhone host. It builds, signs, installs, and launches the identity, machine-host, and cost controls. |
+| `controls/ios-device/main.c` | the independent `hw.machine` control. The same Xcode target carries each Rust device control. |
+| `controls/run-android.sh` | the runner for the ARM64 and x86-64 Android Cargo targets. |
 
 Each runner takes one test binary and runs it on its system, which is the shape
 `CARGO_TARGET_<TARGET>_RUNNER` expects.
@@ -777,6 +787,26 @@ xcrun simctl spawn "$FIDELITY_IOS_SIM" "$PWD/target/aarch64-apple-ios-sim/debug/
 
 `lldb` runs on the host and attaches across the simulator boundary, because a simulator process is
 a host process.
+
+### iOS, on a physical device
+
+The device control uses `io.splitsec.fidelity.control`. It does not replace the host application.
+Xcode must hold an Apple Development identity for the stated team. XcodeGen creates the temporary
+project under `target/platform/ios-device/`.
+
+```sh
+export FIDELITY_IOS_DEVICE=YOUR_DEVICE_IDENTIFIER
+export FIDELITY_IOS_TEAM=ABCDE12345
+tests/platform/controls/run-ios-device.sh identity
+tests/platform/controls/run-ios-device.sh machine
+tests/platform/controls/run-ios-device.sh cost
+tests/platform/controls/run-ios-device.sh local-agent
+```
+
+The identity control installs one provisioned image. It accepts its own team and refuses another
+team. The machine control reads `hw.machine` through the Fidelity probe. The cost control installs
+the same bundle with the existing cost example as its executable. All commands let Xcode update the
+team profile when it must.
 
 ### Guarded constants, on any platform
 
@@ -1025,9 +1055,19 @@ export CARGO_TARGET_AARCH64_LINUX_ANDROID_RUNNER=$PWD/tests/platform/controls/ru
 cargo test -p fidelity-probe-android --target aarch64-linux-android
 ```
 
-### Android, the nine detector controls
+Set `FIDELITY_ANDROID_PHYSICAL=1` only for a verified physical device. `run.sh` then runs
+`machine-hardware-android` and records the emulator arm as skipped. A known emulator selects its
+own arm from the three properties that the probe reads.
 
-`run.sh` runs all nine. They push an example and an agent to `/data/local/tmp/`, and they use the
+Set `FIDELITY_ANDROID_VERIFIED_BOOT=clean` only after the device reports `green` and `locked`.
+Set it to `hostile` only after an unlocked device reports `orange` and `unlocked`.
+
+`run.sh` reads `ro.product.cpu.abi` from the device. It selects `aarch64-linux-android` for
+`arm64-v8a`, or `x86_64-linux-android` for `x86_64`. The Gradle harness packages the same ABI.
+
+### Android detector controls
+
+`run.sh` runs all of them. They push an example and an agent to `/data/local/tmp/`, and they use the
 same sources that Linux uses, because Android keeps the Linux process filesystem and the Linux
 loader. Run one by hand this way:
 
@@ -1072,6 +1112,12 @@ Cargo links with `cc`, which is the host compiler here, and the Apple linker ref
 that Cargo passes. `run.sh` found this, because the recipe worked in a shell that already exported
 the name and nowhere else.
 
+### Linux and Windows, on a physical host
+
+Set `FIDELITY_PHYSICAL_HOST=1` only when the current Linux or Windows system runs on physical
+hardware. `run.sh` then runs `machine-hardware-linux` or `machine-hardware-windows`. A project
+guest runs the matching hostile control and records the hardware arm as skipped.
+
 ## Gaps
 
 Each line blocks something concrete. The order is the cost of closing it, cheapest first.
@@ -1084,15 +1130,12 @@ first three rows below are what is left of them.
 |---|---|
 | A hook of a library that the host did not build | Nothing that blocks a detector, and it bounds what the category reaches. `instrumentation.dispatch_targets` now answers on all five platforms, and this row is what the row for Android became once that cell closed on 2026-08-20. The snapshot reads one image, and the memory budget is the reason, so a hook of the dispatch table of a system library goes unreported. That is the deliberate limit that [detectors and platforms](../../docs/plan/04-detectors-and-platforms.md#dispatch-targets) states. **Two cells closed by reversing a reading**, which is worth recording. On 2026-08-19 this row said macOS was blocked because classic lazy binding moves `__la_symbol_ptr` after start; measured on 2026-08-20, the blocker was a deployment target below the v1 floor, and a chained image carries no lazy table at all. It also said the Android main-image rule "may watch the wrong table"; measured on 2026-08-20, it does, and the fix was to stop naming the main image. |
 | The platform half of `UiAbuse` | Nothing that a host needs, and it bounds what the category reaches. The detector landed on 2026-08-19 and it takes a host report, because two measurements showed that no operating system answers this question. **The overlay half is closed to a library.** On Android 37, `WindowManager` declares 41 methods and only the two screen-recording ones touch it, so nothing states that another application draws above this one; that evidence is `MotionEvent.FLAG_WINDOW_IS_OBSCURED`, which reaches a `View` the host owns. **The screen-recording half could move into the probe.** `addScreenRecordingCallback` registered from an application context and the SDK source anchors it to any activity of the registering uid, so a probe could read it where the host declares `DETECT_SCREEN_RECORDING` and the system is API 35 or later. That would save the host one call and change no finding. **One thing stayed unverified.** With an activity of that uid resumed and `adb shell screenrecord` running for 10 s, the callback never fired and the state stayed 0. Whether the shell recorder bypasses the bookkeeping that drives it needs a second application that starts a `MediaProjection`, and this project built none. Reaching the context at all takes a call on a list that Google owns and revises per release, which no compile reports, and that is the standing argument against moving any of this into the probe. |
-| The clean half of `Virtualization`, on three platforms | Nothing that blocks a detector, and it bounds what the record proves. `emulation` answers on macOS, Linux, Windows, and Android since 2026-08-19, and iOS is the one cell that still reads `plan`. Linux, Windows, and Android hold the hostile arm alone: every Linux, Windows, and Android control of this project runs in a guest or an emulator, so no run of this harness has ever seen one of those three report the hardware. The rule that decides the clean answer is covered by unit tests and by a captured firmware table, and only the live half is open. macOS holds both arms, because this development machine is the bare metal. iOS holds neither, and the row below it states why.
-| The machine host on iOS | One cell of one v1 category, and the last one. Measured on 2026-08-19 in an iOS 18.5 simulator: a process reads the kernel of the Mac that hosts it, so `kern.hv_vmm_present`, `hw.machine`, and `hw.model` each report what the Mac reports and none of them describes the simulator. So the macOS reader cannot be shared, and any rule that separated a simulator from a device would rest on a device value that this project has never read. A device closes this, and it is the same device that two rows below ask for.
+| The clean half of `Virtualization`, on two platforms | Nothing that blocks a detector, and it bounds what the record proves. Linux and Windows hold the hostile arm alone. Android, macOS, and iOS hold both arms. The iOS arm distinguishes a device product name from a simulator host architecture. |
 | A resume that the operating system drives | Nothing, and the gap is now one step rather than the whole promise. The promise itself closed on 2026-08-19, and it closed as a measurement rather than as code: the worker already scans as soon as a frozen process runs again, and neither mobile probe needs a notification. [The resume promise](#the-resume-promise) holds the four arms. What no arm reaches is the operating system that decides the suspension: every arm here freezes the process from outside, with a signal or with the cgroup freezer, and none of them is iOS suspending an application or Android caching one. The mechanism under the result is a relative sleep and a clock that keeps running, and neither one belongs to the application lifecycle, so a real suspension should read the same. A device is what proves that, and the device rows below ask for both of them. |
-| An Android device | The row above, and any measurement that an emulator cannot make. Every Android result in this record came from an emulator, and that now includes the rooted one. A vendor build of a real handset may write something else in `ro.build.tags`, and no emulator answers that. |
-| An iOS device, for an image that names its team | The positive half of iOS `identity`. The reason is now measured rather than assumed. On 2026-08-18 a team entitlement was refused in four combinations on the iOS 26 simulator: a bare binary and an installed app bundle, each with an ad-hoc signature and with a real Apple Development certificate from a team that holds a valid provisioning profile. The same bundle with no entitlement launches, so the binary and the bundle are not the cause. A simulator has no provisioning mechanism at all, so no signature can grant an entitlement there, and only a device can. Every iOS control therefore ran against an image that names no team, and the probe has never read a real one. The reader is proven against a recorded signature that does carry one, and the comparison is a plain function that the tests cover, so only the join of the two is open. |
+| An unlocked Android device | The hostile arm of `device_compromise.verified_boot`. A locked Samsung SM-A065F supplies the clean control. The Fidelity API 36 emulator states no boot color or lock, so it reports `Low` health and does not close this arm. |
 | A system application on Android | Nothing that a host needs. Android installs a system application outside `/data/app/`, under a name of its own, so the exact rule that selects an archive reports a gap for one. A host application always installs under `/data/app/`. |
 | The 4 controls that a person still drives | Nothing that blocks a release, and it bounds what the generated record proves. `run.sh` now drives every control that can state its own answer. The 4 that remain state none: `phases.m` needs a window server and a run loop, `qos-drift.c` measured one design choice that is already made, `entitle.c` prints the entitlements of whatever image it runs in, which is a reading rather than a result, and `machine-paravirtual-linux` needs a second monitor that the guest set does not hold. |
 | A jailbroken iOS system | iOS `device`. The mechanism is reachable, because a jailbreak weakens the same kernel guarantees that the identity probe already reads. No control produces one, so no measurement exists and no code was written. |
-| An iOS device | The iOS rows above. A simulator process runs on the macOS kernel, so it proves the mechanism and not the device. |
 | An x86_64 machine of this project's own | The bare-metal half of the architecture claim. The gate runs the whole harness on `ubuntu-latest` and `windows-latest`, which are x86_64, and on `ubuntu-24.04-arm` and `windows-11-arm`, so every supported architecture of Linux and of Windows answers on every push. A hosted runner is still a virtual machine, so what stays open is bare metal, not the architecture. Android has no x86_64 detector result, because the emulator here runs ARM64. macOS needs none, because it runs on ARM64 alone. Until 2026-08-18 the cross-check held one x86_64 target, so the others could have broken unnoticed, and until that same day no CI run kept a single row of what it measured. |
 | A false-positive survey, across profilers, crash reporters, and enterprise agents | Host guidance only, and no longer release tests. `debugging.tracer_present` carries a user-mode bypass, which the signal model puts at `Medium` on its own, so no survey lifts it. See [detectors and platforms](../../docs/plan/04-detectors-and-platforms.md#tracer-state). |
 | A physical Windows host | What the Windows rows prove about a real machine, and the spread in the Windows cost column. Every Windows result came from the QEMU guest that `tests/platform/vm/windows/` builds. The detector answers should hold, because each one reads a documented kernel or `wintrust` interface rather than a timing. The cost figures do move: two runs on the same guest gave 296 us and 416 us for one `code_identity`, and the table holds the quieter run. See [state and budgets](../../docs/plan/07-state-and-budgets.md#measured-cost). |

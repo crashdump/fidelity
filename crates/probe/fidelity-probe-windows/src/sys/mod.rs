@@ -9,6 +9,7 @@
 //! answer the identity question name their own library with `#[link]`, so the
 //! crate still takes no build script.
 
+pub(crate) mod catalog;
 pub(crate) mod crypt;
 pub(crate) mod debug;
 pub(crate) mod dispatch;

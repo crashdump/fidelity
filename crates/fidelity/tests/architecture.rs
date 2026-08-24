@@ -78,6 +78,27 @@ fn declared_dependencies(manifest: &str) -> BTreeSet<String> {
     found
 }
 
+/// Reads one value from one manifest section.
+fn manifest_value<'a>(manifest: &'a str, section: &str, key: &str) -> Option<&'a str> {
+    let mut inside = false;
+    for line in manifest.lines().map(str::trim) {
+        if line.starts_with('[') {
+            inside = line == section;
+            continue;
+        }
+        if !inside || line.starts_with('#') {
+            continue;
+        }
+        let Some((found, value)) = line.split_once('=') else {
+            continue;
+        };
+        if found.trim() == key {
+            return Some(value.trim().trim_matches('"'));
+        }
+    }
+    None
+}
+
 /// Every Rust source file under one directory.
 fn sources(directory: &Path) -> Vec<PathBuf> {
     let mut found = Vec::new();
@@ -498,6 +519,33 @@ fn the_tauri_adapter_stays_outside_the_production_workspace() {
 }
 
 #[test]
+fn release_crates_share_one_version() {
+    let workspace = fs::read_to_string(root().join("Cargo.toml"))
+        .unwrap_or_else(|error| panic!("the workspace manifest must exist: {error}"));
+    let adapter = fs::read_to_string(root().join("bindings/tauri-plugin-fidelity/Cargo.toml"))
+        .unwrap_or_else(|error| panic!("the Tauri adapter manifest must exist: {error}"));
+
+    let Some(version) = manifest_value(&workspace, "[workspace.package]", "version") else {
+        panic!("the workspace package section must name the release version")
+    };
+    assert_eq!(
+        manifest_value(&adapter, "[package]", "version"),
+        Some(version),
+        "the Tauri adapter must share the workspace release version"
+    );
+
+    let dependency = adapter
+        .lines()
+        .map(str::trim)
+        .find(|line| line.starts_with("fidelity ="))
+        .unwrap_or_else(|| panic!("the Tauri adapter must depend on fidelity"));
+    assert!(
+        dependency.contains(&format!("version = \"{version}\"")),
+        "the Tauri adapter must require fidelity {version}"
+    );
+}
+
+#[test]
 fn the_tauri_adapter_matches_its_small_public_surface() {
     let source = fs::read_to_string(root().join("bindings/tauri-plugin-fidelity/src/lib.rs"))
         .unwrap_or_else(|error| panic!("the Tauri adapter library must exist: {error}"));
@@ -537,7 +585,7 @@ fn the_package_gate_compares_two_archive_sets() {
 #[test]
 fn the_android_cost_measurement_reads_what_one_worker_cycle_reads() {
     // The instrumented harness measures a worker cycle and names its own read
-    // list, and `Detectors::scan_cheap` owns the real one. The two drifted
+    // list, and `Detectors::scan_all` owns the real one. The two drifted
     // apart until 2026-08-20: the worker ran eight detectors and the
     // measurement stopped at six, so `system_build` and `machine_host` went
     // unmeasured on every run and the 20 ms ceiling covered neither. A review
@@ -553,8 +601,15 @@ fn the_android_cost_measurement_reads_what_one_worker_cycle_reads() {
     let Some(body) = cheap.1.split_once("\n    }") else {
         panic!("scan_cheap must end");
     };
-    let detectors = body.0.matches("guarded(").count();
-    assert!(detectors > 0, "scan_cheap must run a detector");
+    let cheap_detectors = body.0.matches("guarded(").count();
+    let Some(full) = engine.split_once("pub fn scan_all") else {
+        panic!("the detector crate must hold scan_all");
+    };
+    let Some(body) = full.1.split_once("\n    }") else {
+        panic!("scan_all must end");
+    };
+    let detectors = cheap_detectors + body.0.matches("guarded(").count();
+    assert!(detectors > 0, "scan_all must run a detector");
 
     let harness = root().join("crates/probe/fidelity-probe-android/android");
     let kotlin = fs::read_to_string(harness.join("src/main/kotlin/fidelity/probe/Harness.kt"))

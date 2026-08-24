@@ -135,10 +135,20 @@ fn matrix() -> Vec<Row> {
 
 /// The trait name that one capability row names.
 fn trait_name(capability: &str) -> String {
-    let mut characters = capability.chars();
-    characters.next().map_or_else(String::new, |first| {
-        first.to_uppercase().collect::<String>() + characters.as_str()
-    })
+    capability
+        .split('_')
+        .map(|word| {
+            let mut characters = word.chars();
+            characters.next().map_or_else(String::new, |first| {
+                first.to_uppercase().collect::<String>() + characters.as_str()
+            })
+        })
+        .collect()
+}
+
+#[test]
+fn a_capability_name_maps_to_its_rust_trait() {
+    assert_eq!(trait_name("verified_boot"), "VerifiedBoot");
 }
 
 /// Every capability trait that `fidelity-core` declares today.

@@ -341,7 +341,7 @@ mod tests {
 
     use fidelity_core::{
         Baseline, Device, Dispatch, Emulation, Environment, Identity, IdentityMatch, Injection,
-        Lifecycle, Observation, Tracer, TracerState, WorkerSetup,
+        Lifecycle, Observation, Tracer, TracerState, VerifiedBoot, WorkerSetup,
     };
     use fidelity_detect::{
         Captured, Detectors, EXPECTED_IDENTITY, INVENTORY, PLATFORM_TRUST, TRACER_PRESENT,
@@ -402,10 +402,19 @@ mod tests {
     }
     impl Baseline for PanickingLifecycle {}
     impl Device for PanickingLifecycle {}
+    impl VerifiedBoot for PanickingLifecycle {}
+    impl fidelity_core::LocalAgent for PanickingLifecycle {
+        fn local_agent_state(&self) -> Observation<fidelity_core::LocalAgentState> {
+            Observation::Unsupported {
+                reason: "no test fact",
+            }
+        }
+    }
     impl Dispatch for PanickingLifecycle {}
     impl Emulation for PanickingLifecycle {}
     impl Identity for PanickingLifecycle {}
     impl Injection for PanickingLifecycle {}
+    impl fidelity_core::ImageCatalog for PanickingLifecycle {}
     impl Tracer for PanickingLifecycle {}
 
     impl Environment for PanickingLifecycle {
@@ -735,10 +744,19 @@ mod tests {
     impl Identity for Counting {}
     impl Tracer for Counting {}
     impl Injection for Counting {}
+    impl fidelity_core::ImageCatalog for Counting {}
     impl Baseline for Counting {}
     impl Dispatch for Counting {}
 
     impl Device for Counting {}
+    impl VerifiedBoot for Counting {}
+    impl fidelity_core::LocalAgent for Counting {
+        fn local_agent_state(&self) -> Observation<fidelity_core::LocalAgentState> {
+            Observation::Unsupported {
+                reason: "no test fact",
+            }
+        }
+    }
     impl Emulation for Counting {}
 
     impl Lifecycle for Counting {

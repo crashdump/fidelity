@@ -83,10 +83,12 @@ mod secret;
 pub use builder::Builder;
 pub use error::{DenialReason, Denied, StartError};
 pub use handle::Handle;
-pub use secret::Secret;
+pub use secret::{Secret, SecretBytes};
 
 #[doc(hidden)]
 pub use secret::__guarded;
+#[doc(hidden)]
+pub use secret::__guarded_bytes;
 
 /// Guards a host literal against this build and the running code identity.
 ///
@@ -109,6 +111,16 @@ pub use secret::__guarded;
 /// belongs to another target fails the build. See the delivery notes for what
 /// to set them to.
 pub use fidelity_macros::guarded;
+
+/// Guards a byte-string literal against this build and code identity.
+///
+/// The macro returns [`SecretBytes`]. It accepts arbitrary bytes, including
+/// zero and non-UTF-8 values.
+///
+/// ```ignore
+/// let key = fidelity::guarded_bytes!(&handle, b"\x00\x01secret");
+/// ```
+pub use fidelity_macros::guarded_bytes;
 
 pub use fidelity_types::{
     Action, AuthenticodeThumbprint, BoundedText, Category, CategorySet, CertificateSha256, Choice,

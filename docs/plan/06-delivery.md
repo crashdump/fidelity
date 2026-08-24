@@ -155,9 +155,12 @@ The marker states what the code does today, and a test enforces every cell. See
 | `baseline` | `Integrity` | yes | yes | yes | yes | yes |
 | `tracer` | `Debugging` | yes | yes | yes | yes | yes |
 | `injection` | `Instrumentation` | no | no | yes | yes | yes |
+| `image_catalog` | `Instrumentation` | no | no | yes | yes | yes |
 | `dispatch` | `Instrumentation` | yes | yes | yes | yes | yes |
-| `device` | `DeviceCompromise` | no | plan | no | no | yes |
-| `emulation` | `Virtualization` | yes | plan | yes | yes | yes |
+| `local_agent` | `Instrumentation` | yes | yes | yes | yes | yes |
+| `device` | `DeviceCompromise` | no | no | no | no | yes |
+| `verified_boot` | `DeviceCompromise` | no | no | no | no | yes |
+| `emulation` | `Virtualization` | yes | yes | yes | yes | yes |
 | `lifecycle` | none | yes | yes | no | no | yes |
 
 A `plan` cell and a `no` cell both report `Unsupported`, which reaches the host's snapshot, so a
@@ -179,9 +182,8 @@ and the interface.
 2. Implement platform code identity vertically through one real backend, and land `guarded!()` on
    it. Identity is one narrow mechanism, and it is the input that the structural path needs, so it
    comes before the heuristic detectors. Done on macOS.
-3. Prove the two axes with more capabilities and more operating systems. Done: eight capabilities
-   run across all five. Two pairs share one pure reader each, and two more share one `common/` body
-   inside the Apple crate.
+3. Prove the two axes with more capabilities and more operating systems. Done: eleven capabilities
+   run across five probes. Three pairs share pure readers, and two pairs share an Apple body.
 4. Add a platform mechanism only with clean and hostile controls, and explicit capability semantics.
 5. Complete all five target backends and the release matrix.
 6. Stabilize the finding and snapshot schema, and publish the first supported Rust release.
@@ -203,6 +205,8 @@ They must not shape the v1 public API early.
 - Every crate publishes in one release, at one version. A feature of the facade that forwards to an
   internal crate cannot resolve against an older published copy of that crate, so `cargo package`
   fails until the version rises. Measured on 2026-08-18, when the `tracing` feature landed.
+  `cargo publish --workspace --exclude fidelity-testkit` publishes the production workspace in
+  dependency order. Publish `tauri-plugin-fidelity` after crates.io lists the new `fidelity`.
 - `Category`, `Evidence`, `Platform`, `IdentityError`, `StartError`, `DenialReason`, and
   `UiObservation` are `#[non_exhaustive]`, because all seven grow after v1. `Action`,
   `SignalStrength`, and `Outcome` stay exhaustive, so the common host match needs no wildcard arm.

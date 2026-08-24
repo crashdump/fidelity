@@ -119,6 +119,18 @@ pub enum Evidence {
         detail: BoundedText,
     },
 
+    /// A compatible local instrumentation endpoint answered on loopback.
+    LocalInstrumentationAgent {
+        /// Which bounded protocol exchange identified the endpoint.
+        detail: BoundedText,
+    },
+
+    /// The process maps a file image that the dynamic loader does not list.
+    UnregisteredImage {
+        /// How many regions bypass the loader catalog, and where they sit.
+        detail: BoundedText,
+    },
+
     /// The process maps executable code that it did not map at start.
     ///
     /// This is the runtime baseline. It answers what an absolute rule cannot
@@ -159,6 +171,12 @@ pub enum Evidence {
         detail: BoundedText,
     },
 
+    /// Android reports an unverified system or an unlocked bootloader.
+    UnverifiedBoot {
+        /// Which verified-boot state reports the weakness.
+        detail: BoundedText,
+    },
+
     /// The host reported that something reads or drives its user interface.
     ///
     /// Every other variant carries what Fidelity read. This one carries what
@@ -177,6 +195,12 @@ pub enum Evidence {
     /// and a processor flag never does.
     VirtualMachineHost {
         /// What the system stated, in text that names no product.
+        detail: BoundedText,
+    },
+
+    /// The system states that a simulator or an emulator runs the application.
+    SimulatedEnvironment {
+        /// What the system stated, in text that names no application data.
         detail: BoundedText,
     },
 }

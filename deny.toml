@@ -1,0 +1,21 @@
+[advisories]
+ignore = [
+    # Tauri 2.11.5 uses the archived GTK3 bindings on Linux. RustSec names no
+    # safe upgrade, and the adapter cannot replace the runtime that Tauri owns.
+    { id = "RUSTSEC-2024-0412", reason = "Tauri owns the Linux GTK3 runtime" },
+    { id = "RUSTSEC-2024-0413", reason = "Tauri owns the Linux GTK3 runtime" },
+    { id = "RUSTSEC-2024-0415", reason = "Tauri owns the Linux GTK3 runtime" },
+    { id = "RUSTSEC-2024-0416", reason = "Tauri owns the Linux GTK3 runtime" },
+    { id = "RUSTSEC-2024-0418", reason = "Tauri owns the Linux GTK3 runtime" },
+    { id = "RUSTSEC-2024-0419", reason = "Tauri owns the Linux GTK3 runtime" },
+    { id = "RUSTSEC-2024-0420", reason = "Tauri owns the Linux GTK3 runtime" },
+    { id = "RUSTSEC-2024-0370", reason = "the GTK3 macro graph owns this build dependency" },
+
+    # Tauri 2.11.5 uses urlpattern 0.3.0. Its Unicode parser has no safe
+    # upgrade in the current Tauri graph.
+    { id = "RUSTSEC-2025-0075", reason = "Tauri owns the URL pattern parser" },
+    { id = "RUSTSEC-2025-0080", reason = "Tauri owns the URL pattern parser" },
+    { id = "RUSTSEC-2025-0081", reason = "Tauri owns the URL pattern parser" },
+    { id = "RUSTSEC-2025-0098", reason = "Tauri owns the URL pattern parser" },
+    { id = "RUSTSEC-2025-0100", reason = "Tauri owns the URL pattern parser" },
+]

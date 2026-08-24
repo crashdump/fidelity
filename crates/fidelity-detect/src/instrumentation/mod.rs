@@ -9,9 +9,15 @@
 
 mod code;
 mod dispatch;
+mod image_catalog;
+mod local_agent;
 
 pub use code::UNACCOUNTED_CODE;
 pub use dispatch::DISPATCH_TARGETS;
+pub use image_catalog::IMAGE_CATALOG;
+pub use local_agent::LOCAL_AGENT;
 
 pub(crate) use code::unaccounted_code;
 pub(crate) use dispatch::dispatch_targets;
+pub(crate) use image_catalog::image_catalog;
+pub(crate) use local_agent::local_agent;

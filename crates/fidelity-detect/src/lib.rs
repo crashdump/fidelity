@@ -37,8 +37,8 @@ mod ui_abuse;
 mod virtualization;
 
 pub use debugging::TRACER_PRESENT;
-pub use device_compromise::SYSTEM_BUILD;
-pub use instrumentation::{DISPATCH_TARGETS, UNACCOUNTED_CODE};
+pub use device_compromise::{SYSTEM_BUILD, VERIFIED_BOOT};
+pub use instrumentation::{DISPATCH_TARGETS, IMAGE_CATALOG, LOCAL_AGENT, UNACCOUNTED_CODE};
 pub use integrity::{EXPECTED_IDENTITY, PLATFORM_TRUST, RUNTIME_BASELINE};
 pub use ui_abuse::{HOST_REPORT, host_report};
 pub use virtualization::MACHINE_HOST;
@@ -89,8 +89,11 @@ pub const INVENTORY: &[Detector] = &[
     TRACER_PRESENT,
     UNACCOUNTED_CODE,
     DISPATCH_TARGETS,
+    IMAGE_CATALOG,
+    LOCAL_AGENT,
     RUNTIME_BASELINE,
     SYSTEM_BUILD,
+    VERIFIED_BOOT,
     MACHINE_HOST,
     HOST_REPORT,
 ];
@@ -152,11 +155,17 @@ impl Detectors {
             guarded(DISPATCH_TARGETS, now_unix_ms, || {
                 instrumentation::dispatch_targets(environment, self.dispatch.as_ref(), now_unix_ms)
             }),
+            guarded(IMAGE_CATALOG, now_unix_ms, || {
+                instrumentation::image_catalog(environment, now_unix_ms)
+            }),
             guarded(RUNTIME_BASELINE, now_unix_ms, || {
                 integrity::runtime_baseline(environment, self.baseline.as_ref(), now_unix_ms)
             }),
             guarded(SYSTEM_BUILD, now_unix_ms, || {
                 device_compromise::system_build(environment, now_unix_ms)
+            }),
+            guarded(VERIFIED_BOOT, now_unix_ms, || {
+                device_compromise::verified_boot(environment, now_unix_ms)
             }),
             guarded(MACHINE_HOST, now_unix_ms, || {
                 virtualization::machine_host(environment, now_unix_ms)
@@ -167,15 +176,19 @@ impl Detectors {
     /// Runs every detector.
     ///
     /// The worker calls this on its first cycle, and on each later full cycle.
-    /// Every detector in this build is cheap, so this runs the same set that
-    /// [`scan_cheap`](Detectors::scan_cheap) runs.
+    /// This adds the bounded loopback probe to the cheap set. The initial scan
+    /// omits that probe, because even a bounded socket deadline is not cheap.
     #[must_use]
     pub fn scan_all(
         &self,
         environment: &dyn Environment,
         now_unix_ms: u64,
     ) -> Vec<(Detector, Outcome)> {
-        self.scan_cheap(environment, now_unix_ms)
+        let mut outcomes = self.scan_cheap(environment, now_unix_ms);
+        outcomes.push(guarded(LOCAL_AGENT, now_unix_ms, || {
+            instrumentation::local_agent(environment, now_unix_ms)
+        }));
+        outcomes
     }
 }
 
@@ -222,7 +235,7 @@ fn guarded(
 mod tests {
     use fidelity_core::{
         CodeIdentity, CodeOrigin, CodeRegions, IdentityMatch, MachineHost, Observation,
-        PlatformTrust, Region, Signer, TracerState,
+        PlatformTrust, Region, Signer, TracerState, VerifiedBoot,
     };
     use fidelity_testkit::FakeEnvironment;
     use fidelity_types::{
@@ -231,7 +244,7 @@ mod tests {
     };
 
     use super::{
-        Captured, Detectors, EXPECTED_IDENTITY, HOST_REPORT, INVENTORY, MACHINE_HOST,
+        Captured, Detectors, EXPECTED_IDENTITY, HOST_REPORT, INVENTORY, LOCAL_AGENT, MACHINE_HOST,
         PLATFORM_TRUST, RUNTIME_BASELINE, TRACER_PRESENT, UNACCOUNTED_CODE,
     };
 
@@ -243,6 +256,9 @@ mod tests {
     /// reports into it, and no scan reaches it.
     const HOST_FED: usize = 1;
 
+    /// How many inventory entries only a full scan reports.
+    const FULL_ONLY: usize = 1;
+
     /// An environment whose tracer capability panics.
     ///
     /// No fake supplies this, because a fake answers with a value and this one
@@ -250,11 +266,20 @@ mod tests {
     struct PanickingTracer;
 
     impl fidelity_core::Lifecycle for PanickingTracer {}
+    impl fidelity_core::LocalAgent for PanickingTracer {
+        fn local_agent_state(&self) -> Observation<fidelity_core::LocalAgentState> {
+            Observation::Unsupported {
+                reason: "no test fact",
+            }
+        }
+    }
     impl fidelity_core::Baseline for PanickingTracer {}
     impl fidelity_core::Dispatch for PanickingTracer {}
     impl fidelity_core::Injection for PanickingTracer {}
+    impl fidelity_core::ImageCatalog for PanickingTracer {}
     impl fidelity_core::Identity for PanickingTracer {}
     impl fidelity_core::Device for PanickingTracer {}
+    impl VerifiedBoot for PanickingTracer {}
     impl fidelity_core::Emulation for PanickingTracer {}
 
     impl fidelity_core::Tracer for PanickingTracer {
@@ -281,7 +306,7 @@ mod tests {
 
         assert_eq!(
             outcomes.len(),
-            INVENTORY.len() - HOST_FED,
+            INVENTORY.len() - HOST_FED - FULL_ONLY,
             "every detector that a scan reaches still answers"
         );
 
@@ -331,7 +356,7 @@ mod tests {
         // observation cannot create a slot, so a scan that reported a detector
         // the inventory lacks would report into nothing.
         let reported = Detectors::new(None, Captured::Unsupported, Captured::Unsupported)
-            .scan_cheap(&FakeEnvironment::new(), NOW);
+            .scan_all(&FakeEnvironment::new(), NOW);
         for (detector, _) in &reported {
             assert!(
                 INVENTORY.contains(detector),
@@ -356,6 +381,27 @@ mod tests {
                 .iter()
                 .any(|(detector, _)| *detector == HOST_REPORT)
         );
+    }
+
+    #[test]
+    fn only_a_full_scan_queries_the_local_agent() {
+        let environment = FakeEnvironment::new().with_local_agent(Observation::Fact(
+            fidelity_core::LocalAgentState::Present {
+                detail: BoundedText::new("a Frida-compatible endpoint answered"),
+            },
+        ));
+        let detectors = Detectors::new(None, Captured::Unsupported, Captured::Unsupported);
+
+        let cheap_has_agent = detectors
+            .scan_cheap(&environment, NOW)
+            .iter()
+            .any(|(detector, _)| *detector == LOCAL_AGENT);
+        let full_has_agent = detectors
+            .scan_all(&environment, NOW)
+            .iter()
+            .any(|(detector, _)| *detector == LOCAL_AGENT);
+
+        assert!(!cheap_has_agent && full_has_agent);
     }
 
     #[test]
@@ -595,6 +641,33 @@ mod tests {
         assert!(matches!(
             finding.evidence(),
             Evidence::VirtualMachineHost { .. }
+        ));
+    }
+
+    #[test]
+    fn a_simulated_system_reports_a_medium_finding() {
+        let environment =
+            FakeEnvironment::new().with_machine_host(Observation::Fact(MachineHost::Simulated {
+                detail: BoundedText::new("the system reports an emulator"),
+            }));
+        let Outcome::Finding(finding) = outcome_of(&environment, None, MACHINE_HOST) else {
+            panic!("a simulated system must report a finding");
+        };
+        assert_eq!(finding.strength(), SignalStrength::Medium);
+    }
+
+    #[test]
+    fn a_simulated_system_carries_simulated_environment_evidence() {
+        let environment =
+            FakeEnvironment::new().with_machine_host(Observation::Fact(MachineHost::Simulated {
+                detail: BoundedText::new("the system reports an emulator"),
+            }));
+        let Outcome::Finding(finding) = outcome_of(&environment, None, MACHINE_HOST) else {
+            panic!("a simulated system must report a finding");
+        };
+        assert!(matches!(
+            finding.evidence(),
+            Evidence::SimulatedEnvironment { .. }
         ));
     }
 

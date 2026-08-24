@@ -145,6 +145,36 @@ pub fn decrypt(key: &[u8; 32], value: &mut [u8]) {
     step(key, value, Direction::Backward);
 }
 
+/// Turns arbitrary host bytes into a guarded byte value.
+#[must_use]
+pub fn encrypt_bytes(key: &[u8; 32], plain: &[u8]) -> Vec<u8> {
+    let mut output = plain.to_vec();
+    byte_stream(key, &mut output);
+    output
+}
+
+/// Turns a guarded byte value back into the host bytes.
+pub fn decrypt_bytes(key: &[u8; 32], value: &mut [u8]) {
+    byte_stream(key, value);
+}
+
+/// Applies the byte stream in either direction.
+fn byte_stream(key: &[u8; 32], value: &mut [u8]) {
+    let mut block = [0_u8; 32];
+    let mut input = [0_u8; 36];
+    input[..32].copy_from_slice(key);
+
+    for (index, byte) in value.iter_mut().enumerate() {
+        let position = index % block.len();
+        if position == 0 {
+            let counter = u32::try_from(index / block.len()).unwrap_or(u32::MAX);
+            input[32..].copy_from_slice(&counter.to_le_bytes());
+            block = sha256(&input);
+        }
+        *byte ^= block[position];
+    }
+}
+
 /// Which way the stream moves through the alphabet.
 #[derive(Clone, Copy)]
 enum Direction {
@@ -184,7 +214,8 @@ fn step(key: &[u8; 32], value: &mut [u8], direction: Direction) {
 #[cfg(test)]
 mod tests {
     use super::{
-        ALPHABET, FIRST, LAST, MIN_BYTES, decrypt, derive_key, derive_salt, encrypt, in_alphabet,
+        ALPHABET, FIRST, LAST, MIN_BYTES, decrypt, decrypt_bytes, derive_key, derive_salt, encrypt,
+        encrypt_bytes, in_alphabet,
     };
 
     const SALT: [u8; 16] = [7; 16];
@@ -211,6 +242,16 @@ mod tests {
         let mut value = encrypt(&key, b"api.example.com");
         decrypt(&key, &mut value);
         assert_eq!(value, b"api.example.com");
+    }
+
+    #[test]
+    fn an_arbitrary_byte_round_trip_returns_the_literal() {
+        let literal = [0, 1, 2, 3, 0xfc, 0xfd, 0xfe, 0xff];
+        let key = key(b"TEAM123456");
+        let mut value = encrypt_bytes(&key, &literal);
+        assert_ne!(value, literal);
+        decrypt_bytes(&key, &mut value);
+        assert_eq!(value, literal);
     }
 
     #[test]

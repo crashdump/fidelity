@@ -41,10 +41,13 @@ mod device;
 mod dispatch;
 mod emulation;
 mod identity;
+mod image_catalog;
 mod injection;
 mod lifecycle;
+mod local_agent;
 mod sys;
 mod tracer;
+mod verified_boot;
 
 use fidelity_core::Environment;
 use fidelity_types::Platform;

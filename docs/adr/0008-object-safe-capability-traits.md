@@ -27,7 +27,7 @@ make the platform seam return a different type in each branch. Monomorphization 
 measurable, because a scan runs every few seconds and one build holds one environment type.
 
 Object safety is the price, and it is small. A capability answers a question, so it returns an owned
-`Observation` of a fact. None of the eight capabilities needs a generic method.
+`Observation` of a fact. No capability needs a generic method.
 
 ## Consequences
 

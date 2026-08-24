@@ -34,11 +34,13 @@ mod baseline;
 mod dispatch;
 mod emulation;
 mod identity;
+mod image_catalog;
 mod injection;
+mod local_agent;
 mod sys;
 mod tracer;
 
-use fidelity_core::{Device, Environment, Lifecycle};
+use fidelity_core::{Device, Environment, Lifecycle, VerifiedBoot};
 use fidelity_types::Platform;
 
 /// The Linux view of the running process.
@@ -70,6 +72,8 @@ impl Environment for LinuxEnvironment {
 // host grants that user root by design. A root shell, a permissive policy, and
 // a custom kernel are all ordinary there, so the question does not apply.
 impl Device for LinuxEnvironment {}
+
+impl VerifiedBoot for LinuxEnvironment {}
 
 // Linux asks nothing of the worker thread, so the default answers.
 impl Lifecycle for LinuxEnvironment {}

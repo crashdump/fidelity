@@ -28,13 +28,20 @@ pub enum Material {
     /// both targets.
     AppleTeam,
 
+    /// The Authenticode signer certificate digest.
+    WindowsCertificate,
+
     /// The signing certificate digest, as 64 lowercase hexadecimal digits.
     /// Android reports it.
     AndroidCertificate,
 }
 
 /// Every kind, in the order that an error message names them.
-const EVERY: [Material; 2] = [Material::AppleTeam, Material::AndroidCertificate];
+const EVERY: [Material; 3] = [
+    Material::AppleTeam,
+    Material::WindowsCertificate,
+    Material::AndroidCertificate,
+];
 
 impl Material {
     /// The word that names this kind in the identity value.
@@ -42,6 +49,7 @@ impl Material {
     pub const fn name(self) -> &'static str {
         match self {
             Self::AppleTeam => "apple",
+            Self::WindowsCertificate => "windows",
             Self::AndroidCertificate => "android",
         }
     }
@@ -54,6 +62,7 @@ impl Material {
     pub fn of_target(target_os: &str) -> Option<Self> {
         match target_os {
             "macos" | "ios" => Some(Self::AppleTeam),
+            "windows" => Some(Self::WindowsCertificate),
             "android" => Some(Self::AndroidCertificate),
             _ => None,
         }
@@ -72,17 +81,15 @@ impl Material {
                     .any(|character| character.is_whitespace() || character.is_control());
                 bad.then(|| String::from("an Apple team identifier holds no space"))
             }
-            Self::AndroidCertificate => {
+            Self::WindowsCertificate | Self::AndroidCertificate => {
                 let digits = value.len() == 64
                     && value.chars().all(|character| {
                         character.is_ascii_hexdigit() && !character.is_ascii_uppercase()
                     });
                 (!digits).then(|| {
                     format!(
-                        "an Android signing certificate digest is 64 lowercase hexadecimal \
-                         digits, and this one has {}. `keytool -list -v` prints the digest in \
-                         pairs that a colon separates, and it prints a SHA-1 digest beside the \
-                         SHA-256 one. Remove every colon, and take the SHA-256 line",
+                        "a signing certificate digest is 64 lowercase hexadecimal digits, and \
+                         this one has {}. Use the SHA-256 digest, with no separator",
                         value.len()
                     )
                 })
@@ -217,6 +224,15 @@ mod tests {
     }
 
     #[test]
+    fn a_windows_value_carries_the_digest_alone() {
+        let stated = format!("windows:{DIGEST}");
+        let Ok(Binding::Present { material, value }) = parse(&stated) else {
+            panic!("a named Windows value must parse");
+        };
+        assert_eq!((material, value), (Material::WindowsCertificate, DIGEST));
+    }
+
+    #[test]
     fn a_value_that_names_no_kind_is_refused() {
         // This is the form that every build used before the kind was named,
         // so the message has to say what to write instead.
@@ -228,10 +244,10 @@ mod tests {
 
     #[test]
     fn a_kind_that_no_platform_reports_is_refused() {
-        let Err(reason) = parse("windows:ABCDE12345") else {
+        let Err(reason) = parse("freebsd:ABCDE12345") else {
             panic!("an unknown kind must not parse");
         };
-        assert!(reason.contains("\"windows\""), "{reason}");
+        assert!(reason.contains("\"freebsd\""), "{reason}");
     }
 
     #[test]

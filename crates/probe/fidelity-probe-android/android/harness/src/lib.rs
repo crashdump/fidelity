@@ -247,11 +247,11 @@ pub extern "system" fn Java_fidelity_probe_Harness_identityCostMicros(
 /// all on each pass. The identity read runs twice, because platform trust and
 /// expected identity are two detectors and each one reads for itself.
 ///
-/// The list below is `Detectors::scan_cheap`, in its order, and it must stay
-/// that way. Until 2026-08-20 it held six of the eight, and it omitted
+/// The list below is `Detectors::scan_all`, in its order, and it must stay
+/// that way. Until 2026-08-20 it held six of the eight cheap reads, and it omitted
 /// `system_build` and `machine_host`, so the ceiling gate covered neither and
-/// the recorded cycle understated a real one. A review found that, and
-/// `READS` in `Harness.kt` names the same eight.
+/// the recorded cycle understated a real one. `READS` in `Harness.kt` names
+/// the same reads, including the three that arrive in v0.4.0.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fidelity_probe_Harness_cycleCostMicros(
     _env: *mut c_void,
@@ -271,8 +271,11 @@ pub extern "system" fn Java_fidelity_probe_Harness_cycleCostMicros(
         black_box(probe.code_regions());
         black_box(probe.code_origin());
         black_box(probe.dispatch_targets());
+        black_box(probe.image_catalog_state());
         black_box(probe.system_build());
+        black_box(probe.boot_verification());
         black_box(probe.machine_host());
+        black_box(probe.local_agent_state());
     })
 }
 
@@ -320,10 +323,19 @@ pub extern "system" fn Java_fidelity_probe_Harness_readCostMicros(
             black_box(black_box(environment).dispatch_targets());
         }),
         6 => micros(|| {
-            black_box(black_box(environment).system_build());
+            black_box(black_box(environment).image_catalog_state());
         }),
         7 => micros(|| {
+            black_box(black_box(environment).system_build());
+        }),
+        8 => micros(|| {
+            black_box(black_box(environment).boot_verification());
+        }),
+        9 => micros(|| {
             black_box(black_box(environment).machine_host());
+        }),
+        10 => micros(|| {
+            black_box(black_box(environment).local_agent_state());
         }),
         _ => NO_SUCH_READ,
     }

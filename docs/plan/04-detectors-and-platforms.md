@@ -249,6 +249,39 @@ The signal that survives on Apple is therefore a change against a baseline that 
 captures at start, and not an absolute count. That is the runtime baseline below, which is why the
 two tiers are separate.
 
+## Local instrumentation endpoint
+
+This detector sends one bounded WebSocket upgrade request to IPv4 loopback on the default Frida
+port. A connection alone creates no finding. The response must match the HTTP upgrade status,
+the upgrade headers, and the answer for the fixed RFC 6455 key.
+
+The request uses no DNS and no address outside loopback. The connection has a 5 ms deadline.
+Each protocol read and write has a 20 ms deadline. The response buffer holds 1024 bytes. A refused
+connection and an unrelated service report clean. A timeout or an I/O failure reports `Low` health.
+
+A matching endpoint reports `Medium`. It identifies a compatible instrumentation service, but an
+attacker in the process can replace the loopback exchange. The detector runs in a full scan. A
+socket deadline does not belong in the synchronous cheap scan.
+
+## Image catalog
+
+Linux, Android, and Windows compare executable file images with the dynamic-loader catalog. This
+detects a valid image that a manual mapper places without loader registration. It complements
+unaccounted code, which accepts every file-backed mapping.
+
+Linux and Android read executable mappings from `/proc/self/maps`. They read loader ranges with
+`dl_iterate_phdr` and compare addresses. A path comparison would fail on aliases, deleted names,
+and Android archive paths.
+
+Windows reads executable `MEM_IMAGE` regions with `VirtualQuery`. It compares each allocation base
+with the module bases that `K32EnumProcessModules` reports. A normal `MEM_MAPPED` file is outside
+this question, because Windows does not mark it as an image.
+
+An image outside the catalog reports `Medium`. A late `dlopen` or `LoadLibrary` call remains clean,
+because the loader registers that image. A catalog failure or a bound failure reports `Low` health.
+Apple reports `Unsupported`, because its hardened runtime already refuses the inserted-library
+case, and the excluded-mechanisms table records that limit.
+
 ## Dispatch targets
 
 A loader resolves an imported call through a table of pointers. A hook that rewrites one entry
@@ -402,18 +435,42 @@ image and ARM64: Magisk 25.2 patches the ramdisk, `magiskd` then runs as root, a
 appears. Both properties stay as they were, so this detector reports `clean` on a system that now
 holds a root daemon. The tool takes the privilege and leaves the statement alone.
 
-iOS can answer this question and no code exists yet. A jailbreak weakens the same kernel guarantees
-that the identity probe already reads, so the mechanism is reachable. It waits for a control that
-produces a jailbroken system.
+Measured on 2026-08-24, a physical Samsung SM-A065F reports `release-keys` and
+`ro.debuggable=0`. The detector reports clean on that vendor build.
+
+iOS reports `Unsupported`. The iOS 26.5 SDK declares `kern.securelevel`, but a provisioned
+application on iOS 26.6.1 receives `EPERM` when it reads that value. No other public SDK interface
+states the system compromise. A static path list remains excluded evidence, so the probe does not
+replace an absent state with a heuristic.
 
 macOS, Windows, and Linux report `Unsupported`. Each one grants its user administrator rights or
 root by design, so this category has no privilege boundary there to report the loss of.
 
+## Verified boot
+
+Android Verified Boot states whether the system passed verification before it started. The
+bootloader lock states whether a later boot may replace that system. This detector reads both
+statements, because either one alone gives an incomplete answer.
+
+| Source | Clean control | Hostile control |
+|---|---|---|
+| `ro.boot.verifiedbootstate` and `ro.boot.vbmeta.device_state`, through `__system_property_get` | a locked physical device that reports `green` and `locked` | an unlocked physical device that reports `orange` and `unlocked` |
+
+`ro.boot.flash.locked` supplies the lock state only when the vbmeta property is absent. Two lock
+values that disagree produce a `Low` health finding. A missing or unknown value does the same.
+
+An unlocked or unverified boot is `Medium`. A root user can rewrite the property store, so the
+statement carries the same bypass as the system-build detector. A common clean device does not
+report, so the benign case is narrower.
+
+Measured on 2026-08-24, a Samsung SM-A065F on Android 16 reports `green`, `locked`, and `1`.
+The physical clean control reports clean. The unlocked-device control remains open.
+
 ## Machine host
 
-A virtual machine monitor sits below the operating system, so it reads every byte that the process
-holds and stops it at any instruction. No check inside the process sees that happen. The kernel does
-see the boundary, and this detector reads what the kernel states about it.
+A virtual machine monitor sits below the operating system, so it reads every process byte and stops
+the process at any instruction. An emulator or a simulator runs the application in another system.
+The operating system sees these boundaries, and this detector reads what it states about them.
 
 | Platform | Source | Hostile control |
 |---|---|---|
@@ -421,16 +478,23 @@ see the boundary, and this detector reads what the kernel states about it.
 | Linux | the firmware identity, which the kernel writes under `/sys/class/dmi/id/`, and the paravirtual bus under `/sys/bus/virtio/devices` | the Linux guest, and a second monitor that ships no firmware identity |
 | Windows | the same firmware identity, through `GetSystemFirmwareTable` with the `RSMB` provider | the Windows guest |
 | Android | `ro.boot.qemu`, `ro.build.characteristics`, and `ro.hardware`, through the property store | an emulator image |
+| iOS | `hw.machine`, through `sysctlbyname` | an iOS simulator |
 
 macOS holds both controls. Measured on 2026-08-18: this development machine reports 0 and the
 detector reports clean, and macOS 26.6.2 inside a Virtualization.framework guest reports 1 and the
 detector reports `Medium` and denies the operation. The guest needs no account and answers no
 network, because a launch daemon that the host writes into its disk runs the control at boot.
 
-Linux, Windows, and Android hold the hostile control alone, because this project owns no bare-metal
-Linux, no bare-metal Windows, and no physical Android device. Measured on 2026-08-19: the Linux
-guest and the Windows guest each report `QEMU` and `QEMU Virtual Machine`, and the Android 37
-emulator reports `ro.boot.qemu=1`. All three report `Medium` and deny the operation.
+Linux and Windows hold the hostile control alone, because this project owns no bare-metal system
+for either one. Android holds both controls. Measured on 2026-08-19: the Linux guest and the
+Windows guest each report `QEMU`, and the Android 37 emulator reports `ro.boot.qemu=1`. The Android
+result carries `SimulatedEnvironment`, because an emulator is not a virtual machine. Measured on
+2026-08-24, a physical Samsung SM-A065F reports no emulator marker and the detector reports clean.
+
+iOS holds both controls. Measured on 2026-08-24: an iPhone 12 Pro on iOS 26.6.1 reports
+`hw.machine=iPhone13,3`, and the detector reports clean. The iOS 26.5 simulator reports
+`hw.machine=arm64`. The detector reports `Medium`, carries `SimulatedEnvironment`, and denies the
+operation. An unknown value reports a `Low` health finding and never a clean result.
 
 Linux and Windows read the same two fields of the same DMTF structure, so both call one reader in
 `fidelity-formats`, and one list of names decides for both. The list is the `dmi_vendor_table` of
@@ -452,24 +516,18 @@ cache, which refuses to run when that value reports a guest.
 This is not the processor flag that the excluded-mechanisms table above rules out. That flag states
 whether the processor offers virtualization, and this value states whether something uses it.
 
-A reported virtual machine is `Medium`, and `High` is closed rather than pending. Both `Medium`
+A reported virtual machine or simulated environment is `Medium`, and `High` is closed rather than
+pending. Both `Medium`
 clauses apply, and either one alone would decide it. The benign case is common: a developer who runs
-the whole system in a guest reports it on every clean run, and so does a build machine, and so does
-a host that ships to a virtual desktop. The bypass is meaningful on every platform: the system
-states this about itself, in a value or a file or a property, and a root actor on the guest writes
-what it likes there.
+the whole system in a guest reports it on every clean run. A developer who runs a simulator or an
+emulator does too. A build machine and a virtual desktop report it as well. The bypass is meaningful
+on every platform: the system states this in a value, file, or property. A privileged actor or a
+hook can replace that answer.
 
 Two coverage limits follow, and both are deliberate. A system that reports the hardware may still
 run under a monitor that hides itself, because the same root actor rewrites the answer. A system
 that reports a monitor is not under attack by that fact alone. The detector states what the system
 says about itself, and the strength states how much that is worth.
-
-iOS can answer this question, and no code exists yet. It holds neither control, and a measurement
-decided that rather than caution. Measured on 2026-08-19 in an iOS 18.5 simulator: a process there
-reads the kernel of the Mac that hosts it, so `kern.hv_vmm_present`, `hw.machine`, and `hw.model`
-each report what the Mac reports and none of them describes the simulator. A rule that separated a
-simulator from a device would rest on what this project believes a device reports, and this project
-holds no device. The probe crate states that.
 
 ## The user interface
 

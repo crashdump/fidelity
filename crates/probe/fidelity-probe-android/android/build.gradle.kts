@@ -6,6 +6,13 @@ plugins {
     id("org.jetbrains.kotlin.android") version "2.0.21"
 }
 
+val fidelityAndroidAbi = providers.environmentVariable("FIDELITY_ANDROID_ABI")
+    .getOrElse("arm64-v8a")
+val fidelityRustTarget = when (fidelityAndroidAbi) {
+    "arm64-v8a" -> "aarch64-linux-android"
+    "x86_64" -> "x86_64-linux-android"
+    else -> error("Fidelity supports no Android test ABI named $fidelityAndroidAbi")
+}
 android {
     namespace = "fidelity.probe"
     compileSdk = 35
@@ -14,7 +21,7 @@ android {
         // The floor that docs/plan/04-detectors-and-platforms.md states.
         minSdk = 34
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        ndk { abiFilters += "arm64-v8a" }
+        ndk { abiFilters += fidelityAndroidAbi }
     }
 
     // The Rust cdylib arrives here. `cargo-ndk` is not used on purpose: the
@@ -69,19 +76,22 @@ val buildRust by tasks.registering(Exec::class) {
     workingDir = file("harness")
     val ndk = "${System.getProperty("user.home")}/Library/Android/sdk/ndk/29.0.14206865"
     val bin = "$ndk/toolchains/llvm/prebuilt/darwin-x86_64/bin"
-    environment("CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER", "$bin/aarch64-linux-android34-clang")
-    environment("CC_aarch64_linux_android", "$bin/aarch64-linux-android34-clang")
+    val linker = providers.environmentVariable("FIDELITY_NDK_CC")
+        .getOrElse("$bin/${fidelityRustTarget}34-clang")
+    val targetName = fidelityRustTarget.uppercase().replace('-', '_')
+    environment("CARGO_TARGET_${targetName}_LINKER", linker)
+    environment("CC_${fidelityRustTarget.replace('-', '_')}", linker)
     // The seed is fixed, because this harness is a control and two runs of it
     // must produce the same guarded value. A host states a seed that it owns.
     environment("FIDELITY_BUILD_SEED", "fidelity-harness")
     // The value names the kind of material, because a value that Apple reports
     // and a value that Android reports both used to read as a bare string.
     environment("FIDELITY_CODE_IDENTITY", "android:" + debugSigningCertificateSha256())
-    commandLine("cargo", "build", "--release", "--target", "aarch64-linux-android")
+    commandLine("cargo", "build", "--release", "--target", fidelityRustTarget)
     doLast {
         copy {
-            from("harness/target/aarch64-linux-android/release/libfidelity_harness.so")
-            into(layout.buildDirectory.dir("rustJniLibs/arm64-v8a"))
+            from("harness/target/$fidelityRustTarget/release/libfidelity_harness.so")
+            into(layout.buildDirectory.dir("rustJniLibs/$fidelityAndroidAbi"))
         }
     }
 }

@@ -1,0 +1,43 @@
+name: FidelityDeviceControl
+
+options:
+  deploymentTarget:
+    iOS: "26.0"
+
+targets:
+  FidelityDeviceControl:
+    type: application
+    platform: iOS
+    settings:
+      base:
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Fidelity Control
+        INFOPLIST_KEY_LSRequiresIPhoneOS: YES
+        PRODUCT_BUNDLE_IDENTIFIER: io.splitsec.fidelity.control
+        TARGETED_DEVICE_FAMILY: "1"
+    sources:
+      - path: tests/platform/controls/ios-device/main.c
+    postBuildScripts:
+      - name: Install the Rust control
+        basedOnDependencyAnalysis: false
+        script: |
+          set -eu
+          control=${FIDELITY_IOS_CONTROL_EXAMPLE:-identity}
+          case "$control" in
+              identity) package=fidelity ;;
+              machine) package=fidelity ;;
+              local-agent) package=fidelity ;;
+              cost) package=fidelity-probe-apple ;;
+              machine-name) exit 0 ;;
+              *)
+                  echo "the iOS device control does not know $control" >&2
+                  exit 2
+                  ;;
+          esac
+          cargo build --locked --release -p "$package" --example "$control" \
+              --target aarch64-apple-ios --manifest-path "$SRCROOT/../../../Cargo.toml" \
+              --target-dir "$SRCROOT/../../../target"
+          install -m 755 \
+              "$SRCROOT/../../../target/aarch64-apple-ios/release/examples/$control" \
+              "$TARGET_BUILD_DIR/$EXECUTABLE_PATH"

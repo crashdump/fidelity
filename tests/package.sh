@@ -4,6 +4,7 @@ set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$root"
+version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
 
 mkdir -p target
 package_temp=$(mktemp -d "$root/target/package-check.XXXXXX")
@@ -49,10 +50,10 @@ for archive in "$first"/package/*.crate; do
 done
 
 mkdir -p "$package_temp/packages"
-for archive in "$first"/package/fidelity*-0.3.0.crate; do
+for archive in "$first"/package/fidelity*-"$version".crate; do
     tar -xzf "$archive" -C "$package_temp/packages"
 done
-cp tests/package/consumer/Cargo.toml "$package_temp/Cargo.toml"
+sed "s/@VERSION@/$version/g" tests/package/consumer/Cargo.toml >"$package_temp/Cargo.toml"
 mkdir -p "$package_temp/src"
 cp tests/package/consumer/src/main.rs "$package_temp/src/main.rs"
 cargo +1.85 check --manifest-path "$package_temp/Cargo.toml" --offline

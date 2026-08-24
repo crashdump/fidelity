@@ -8,6 +8,8 @@
 //! detector found nothing, because the result depends on how the machine
 //! signed this test binary. Detector behavior belongs to the probe tests.
 
+use std::time::Duration;
+
 use fidelity::{Category, Outcome, StartError};
 
 #[test]
@@ -19,8 +21,12 @@ fn the_runtime_starts_once_and_reports_its_state() {
         Err(error) => panic!("the start failed: {error}"),
     };
 
-    // The initial scan reached every cheap detector, so no slot reports the
-    // absence of coverage.
+    assert!(
+        handle.wait_for_first_full_scan(Duration::from_secs(2)),
+        "the first full scan must finish inside the test bound"
+    );
+
+    // The first full scan reached every detector that reads the system.
     let snapshot = handle.snapshot();
     assert!(
         !snapshot.detectors().is_empty(),
@@ -43,7 +49,7 @@ fn the_runtime_starts_once_and_reports_its_state() {
         assert_ne!(
             state.outcome(),
             &Outcome::NotRun,
-            "the initial scan skipped {}",
+            "the first full scan skipped {}",
             state.detector().name()
         );
     }

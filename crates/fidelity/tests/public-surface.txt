@@ -1,18 +1,22 @@
 fidelity  pub enum DenialReason
 fidelity  pub enum StartError
 fidelity  pub fn __guarded<const N: usize, const BOUND: bool>(handle: &Handle, salt: &[u8; 16], value: &[u8; N]) -> Secret<N>
+fidelity  pub fn __guarded_bytes<const N: usize, const BOUND: bool>(handle: &Handle, salt: &[u8; 16], value: &[u8; N]) -> SecretBytes<N>
 fidelity  pub fn new() -> Builder
 fidelity  pub struct Builder
 fidelity  pub struct Denied
 fidelity  pub struct Handle
 fidelity  pub struct Secret<const N: usize>
+fidelity  pub struct SecretBytes<const N: usize>
 fidelity  pub use builder::Builder
 fidelity  pub use error::{DenialReason, Denied, StartError}
 fidelity  pub use fidelity_macros::guarded
+fidelity  pub use fidelity_macros::guarded_bytes
 fidelity  pub use fidelity_types::{ Action, AuthenticodeThumbprint, BoundedText, Category, CategorySet, CertificateSha256, Choice, CodeRequirement, ContentDigest, Detector, DetectorState, Evidence, ExpectedIdentity, Finding, IdentityError, MAX_EVIDENCE_BYTES, Outcome, Platform, SignalStrength, Snapshot, TeamIdentifier, UiObservation, }
 fidelity  pub use handle::Handle
-fidelity  pub use secret::Secret
 fidelity  pub use secret::__guarded
+fidelity  pub use secret::__guarded_bytes
+fidelity  pub use secret::{Secret, SecretBytes}
 fidelity-types  pub const MAX_EVIDENCE_BYTES: usize = 4096
 fidelity-types  pub enum Action
 fidelity-types  pub enum Category
@@ -100,9 +104,13 @@ fidelity-types::Evidence  variant DevelopmentBuild
 fidelity-types::Evidence  variant DispatchRedirected
 fidelity-types::Evidence  variant ImageUntrusted
 fidelity-types::Evidence  variant InterfaceObserved
+fidelity-types::Evidence  variant LocalInstrumentationAgent
+fidelity-types::Evidence  variant SimulatedEnvironment
 fidelity-types::Evidence  variant TracerPresent
 fidelity-types::Evidence  variant UnaccountedCode
+fidelity-types::Evidence  variant UnregisteredImage
 fidelity-types::Evidence  variant UnexpectedIdentity
+fidelity-types::Evidence  variant UnverifiedBoot
 fidelity-types::Evidence  variant VirtualMachineHost
 fidelity-types::ExpectedIdentity  pub const fn android_choice(&self) -> Option<&Choice<CertificateSha256>>
 fidelity-types::ExpectedIdentity  pub const fn ios_choice(&self) -> Option<&Choice<TeamIdentifier>>
@@ -176,6 +184,7 @@ fidelity::Handle  pub fn report_ui_abuse(&self, observation: UiObservation)
 fidelity::Handle  pub fn snapshot(&self) -> Snapshot
 fidelity::Handle  pub fn wait_for_first_full_scan(&self, timeout: Duration) -> bool
 fidelity::Secret  pub fn as_str(&self) -> &str
+fidelity::SecretBytes  pub const fn as_bytes(&self) -> &[u8]
 fidelity::StartError  variant AlreadyRunning
 fidelity::StartError  variant IdentityBindingUnavailable
 fidelity::StartError  variant MissingCallback

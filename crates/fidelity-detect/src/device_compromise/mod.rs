@@ -15,7 +15,10 @@
 //! What is left is what the system states about itself.
 
 mod system_build;
+mod verified_boot;
 
 pub use system_build::SYSTEM_BUILD;
+pub use verified_boot::VERIFIED_BOOT;
 
 pub(crate) use system_build::system_build;
+pub(crate) use verified_boot::verified_boot;

@@ -38,16 +38,34 @@ const IDENTITY: &str = "FIDELITY_CODE_IDENTITY";
 /// error at run time by design.
 #[proc_macro]
 pub fn guarded(input: TokenStream) -> TokenStream {
-    match expand(input) {
+    match expand(input, LiteralKind::Text) {
         Ok(stream) => stream,
         Err(message) => error(&message),
     }
 }
 
+/// Guards a byte-string literal against the build and code identity.
+#[proc_macro]
+pub fn guarded_bytes(input: TokenStream) -> TokenStream {
+    match expand(input, LiteralKind::Bytes) {
+        Ok(stream) => stream,
+        Err(message) => error(&message),
+    }
+}
+
+#[derive(Clone, Copy)]
+enum LiteralKind {
+    Text,
+    Bytes,
+}
+
 /// Builds the expansion, or the reason that it cannot.
-fn expand(input: TokenStream) -> Result<TokenStream, String> {
-    let (handle, literal) = split(input)?;
-    let plain = literal::parse(&literal)?;
+fn expand(input: TokenStream, kind: LiteralKind) -> Result<TokenStream, String> {
+    let (handle, literal) = split(input, kind)?;
+    let plain = match kind {
+        LiteralKind::Text => literal::parse(&literal)?,
+        LiteralKind::Bytes => literal::parse_bytes(&literal)?,
+    };
 
     if plain.len() < fidelity_cipher::MIN_BYTES {
         return Err(format!(
@@ -57,7 +75,7 @@ fn expand(input: TokenStream) -> Result<TokenStream, String> {
             plain.len()
         ));
     }
-    if !fidelity_cipher::in_alphabet(&plain) {
+    if matches!(kind, LiteralKind::Text) && !fidelity_cipher::in_alphabet(&plain) {
         return Err(String::from(
             "a guarded literal holds printable ASCII only. The stream stays inside that \
              alphabet, so that a wrong key gives a wrong value instead of a decode failure, \
@@ -87,17 +105,30 @@ fn expand(input: TokenStream) -> Result<TokenStream, String> {
 
     let salt = fidelity_cipher::derive_salt(seed.as_bytes(), &plain);
     let key = fidelity_cipher::derive_key(&salt, material);
-    let value = fidelity_cipher::encrypt(&key, &plain);
+    let value = match kind {
+        LiteralKind::Text => fidelity_cipher::encrypt(&key, &plain),
+        LiteralKind::Bytes => fidelity_cipher::encrypt_bytes(&key, &plain),
+    };
 
-    Ok(assemble(&handle, &salt, &value, bound))
+    Ok(assemble(&handle, &salt, &value, bound, kind))
 }
 
 /// Writes the tokens that replace the call.
-fn assemble(handle: &TokenStream, salt: &[u8; 16], value: &[u8], bound: bool) -> TokenStream {
+fn assemble(
+    handle: &TokenStream,
+    salt: &[u8; 16],
+    value: &[u8],
+    bound: bool,
+    kind: LiteralKind,
+) -> TokenStream {
+    let reader = match kind {
+        LiteralKind::Text => "__guarded",
+        LiteralKind::Bytes => "__guarded_bytes",
+    };
     let body = format!(
         "{{ const __FIDELITY_SALT: [u8; 16] = {}; \
            const __FIDELITY_VALUE: [u8; {}] = {}; \
-           ::fidelity::__guarded::<{}, {bound}>(__FIDELITY_HANDLE, \
+           ::fidelity::{reader}::<{}, {bound}>(__FIDELITY_HANDLE, \
                &__FIDELITY_SALT, &__FIDELITY_VALUE) }}",
         array(salt),
         value.len(),
@@ -136,10 +167,14 @@ fn array(bytes: &[u8]) -> String {
 ///
 /// A group counts as one token tree, so a comma inside brackets never reaches
 /// this loop and no depth count is needed.
-fn split(input: TokenStream) -> Result<(TokenStream, String), String> {
+fn split(input: TokenStream, kind: LiteralKind) -> Result<(TokenStream, String), String> {
     let mut handle = TokenStream::new();
     let mut tail = Vec::new();
     let mut seen_comma = false;
+    let (name, literal_name) = match kind {
+        LiteralKind::Text => ("guarded!()", "string literal"),
+        LiteralKind::Bytes => ("guarded_bytes!()", "byte-string literal"),
+    };
 
     for tree in input {
         match &tree {
@@ -152,22 +187,19 @@ fn split(input: TokenStream) -> Result<(TokenStream, String), String> {
     }
 
     if !seen_comma {
-        return Err(String::from(
-            "guarded!() takes a handle and a string literal, as in \
-             guarded!(&handle, \"api.example.com\")",
+        return Err(format!(
+            "{name} takes a handle and a {literal_name}, separated by a comma"
         ));
     }
     if handle.is_empty() {
-        return Err(String::from("guarded!() needs a handle before the literal"));
+        return Err(format!("{name} needs a handle before the literal"));
     }
     match tail.as_slice() {
         [TokenTree::Literal(literal)] => Ok((handle, literal.to_string())),
-        [] => Err(String::from(
-            "guarded!() needs a string literal after the handle",
-        )),
-        _ => Err(String::from(
-            "guarded!() takes one string literal, and it must be written in place. A constant \
-             or a variable would put the plaintext in the binary",
+        [] => Err(format!("{name} needs a {literal_name} after the handle")),
+        _ => Err(format!(
+            "{name} takes one {literal_name}, and it must be written in place. A constant or a \
+             variable would put the plaintext in the binary"
         )),
     }
 }

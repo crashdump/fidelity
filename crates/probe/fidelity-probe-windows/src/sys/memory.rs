@@ -175,6 +175,8 @@ pub(crate) struct Region {
     pub(crate) start: u64,
     /// The address after the region.
     pub(crate) end: u64,
+    /// The first address of the allocation that holds the region.
+    pub(crate) allocation_base: u64,
     /// Whether the region is writable as well as executable.
     pub(crate) writable: bool,
     /// Whether an image section holds this region.
@@ -245,6 +247,7 @@ pub(crate) fn executable() -> Result<Vec<Region>, &'static str> {
             found.push(Region {
                 start: address,
                 end: address.saturating_add(size),
+                allocation_base: info.allocation_base as u64,
                 writable: info.protect & EXECUTE_WRITE != 0,
                 image: info.kind == MEM_IMAGE,
                 mapped: info.kind == MEM_MAPPED,

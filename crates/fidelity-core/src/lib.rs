@@ -28,12 +28,14 @@ mod environment;
 mod observation;
 
 pub use capability::{
-    Baseline, Device, Dispatch, Emulation, Identity, Injection, Lifecycle, Tracer,
+    Baseline, Device, Dispatch, Emulation, Identity, ImageCatalog, Injection, Lifecycle,
+    LocalAgent, Tracer, VerifiedBoot,
 };
 pub use environment::Environment;
 pub use fact::{
-    CodeIdentity, CodeOrigin, CodeRegions, DispatchTargets, IdentityMatch, MachineHost,
-    PlatformTrust, Region, Signer, SystemBuild, Target, TracerState, WorkerSetup,
+    BootVerification, CodeIdentity, CodeOrigin, CodeRegions, DispatchTargets, IdentityMatch,
+    ImageCatalogState, LocalAgentState, MachineHost, PlatformTrust, Region, Signer, SystemBuild,
+    Target, TracerState, WorkerSetup,
 };
 pub use observation::Observation;
 

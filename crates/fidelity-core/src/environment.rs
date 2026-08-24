@@ -1,7 +1,8 @@
 use fidelity_types::Platform;
 
 use crate::capability::{
-    Baseline, Device, Dispatch, Emulation, Identity, Injection, Lifecycle, Tracer,
+    Baseline, Device, Dispatch, Emulation, Identity, ImageCatalog, Injection, Lifecycle,
+    LocalAgent, Tracer, VerifiedBoot,
 };
 
 /// Everything that one platform reports.
@@ -18,9 +19,12 @@ pub trait Environment:
     + Dispatch
     + Emulation
     + Identity
+    + ImageCatalog
     + Injection
     + Lifecycle
+    + LocalAgent
     + Tracer
+    + VerifiedBoot
     + Send
     + Sync
     + 'static
@@ -36,7 +40,8 @@ mod tests {
     use super::Environment;
     use crate::Observation;
     use crate::capability::{
-        Baseline, Device, Dispatch, Emulation, Identity, Injection, Lifecycle, Tracer,
+        Baseline, Device, Dispatch, Emulation, Identity, ImageCatalog, Injection, Lifecycle,
+        LocalAgent, Tracer, VerifiedBoot,
     };
 
     /// A probe that offers no capability, so every default answers.
@@ -49,15 +54,27 @@ mod tests {
 
     impl Injection for Bare {}
 
+    impl ImageCatalog for Bare {}
+
     impl Baseline for Bare {}
 
     impl Dispatch for Bare {}
 
     impl Device for Bare {}
 
+    impl VerifiedBoot for Bare {}
+
     impl Emulation for Bare {}
 
     impl Lifecycle for Bare {}
+
+    impl LocalAgent for Bare {
+        fn local_agent_state(&self) -> Observation<crate::LocalAgentState> {
+            Observation::Unsupported {
+                reason: "no test fact",
+            }
+        }
+    }
 
     impl Environment for Bare {
         fn platform(&self) -> Platform {

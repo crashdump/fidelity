@@ -645,7 +645,7 @@ dependencies = [
 
 [[package]]
 name = "fidelity"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "fidelity-cipher",
  "fidelity-core",
@@ -661,18 +661,18 @@ dependencies = [
 
 [[package]]
 name = "fidelity-cipher"
-version = "0.3.0"
+version = "0.4.0"
 
 [[package]]
 name = "fidelity-core"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "fidelity-types",
 ]
 
 [[package]]
 name = "fidelity-detect"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "fidelity-core",
  "fidelity-types",
@@ -680,7 +680,7 @@ dependencies = [
 
 [[package]]
 name = "fidelity-engine"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "fidelity-core",
  "fidelity-detect",
@@ -689,18 +689,18 @@ dependencies = [
 
 [[package]]
 name = "fidelity-formats"
-version = "0.3.0"
+version = "0.4.0"
 
 [[package]]
 name = "fidelity-macros"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "fidelity-cipher",
 ]
 
 [[package]]
 name = "fidelity-probe-android"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "fidelity-cipher",
  "fidelity-core",
@@ -710,7 +710,7 @@ dependencies = [
 
 [[package]]
 name = "fidelity-probe-apple"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "fidelity-core",
  "fidelity-formats",
@@ -719,7 +719,7 @@ dependencies = [
 
 [[package]]
 name = "fidelity-probe-linux"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "fidelity-cipher",
  "fidelity-core",
@@ -729,7 +729,7 @@ dependencies = [
 
 [[package]]
 name = "fidelity-probe-windows"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "fidelity-cipher",
  "fidelity-core",
@@ -739,7 +739,7 @@ dependencies = [
 
 [[package]]
 name = "fidelity-types"
-version = "0.3.0"
+version = "0.4.0"
 
 [[package]]
 name = "field-offset"
@@ -2764,7 +2764,7 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-fidelity"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "fidelity",
  "tauri",

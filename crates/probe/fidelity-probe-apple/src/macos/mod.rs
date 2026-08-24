@@ -9,10 +9,12 @@ mod dispatch;
 mod emulation;
 mod identity;
 mod lifecycle;
+mod local_agent;
 mod tracer;
 
 use fidelity_core::{
-    Baseline, Device, Dispatch, Emulation, Environment, Identity, Injection, Lifecycle, Tracer,
+    Baseline, Device, Dispatch, Emulation, Environment, Identity, ImageCatalog, Injection,
+    Lifecycle, Tracer, VerifiedBoot,
 };
 use fidelity_types::Platform;
 
@@ -61,11 +63,15 @@ const _: fn() = || {
 // `docs/plan/04-detectors-and-platforms.md`.
 impl Injection for MacEnvironment {}
 
+impl ImageCatalog for MacEnvironment {}
+
 // macOS cannot answer `device`. The category reports the loss of a privilege
 // boundary that the operating system holds against its own user, and macOS
 // grants that user administrator rights by design. There is no such boundary
 // to lose, so the question does not apply rather than waiting for code.
 impl Device for MacEnvironment {}
+
+impl VerifiedBoot for MacEnvironment {}
 
 #[cfg(test)]
 mod tests {

@@ -232,6 +232,23 @@ pub struct Unaccounted {
     pub bytes: u64,
 }
 
+/// What the loader catalog does not account for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct CatalogGap {
+    /// How many executable file regions sit outside the loader catalog.
+    pub regions: u32,
+    /// How many bytes those regions cover.
+    pub bytes: u64,
+}
+
+impl CatalogGap {
+    /// Reports whether the loader accounts for all executable file regions.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.regions == 0
+    }
+}
+
 impl Unaccounted {
     /// Reports whether a file accounts for every executable region.
     #[must_use]
@@ -260,6 +277,29 @@ pub fn unaccounted(text: &str) -> Unaccounted {
     found
 }
 
+/// Counts executable file mappings outside the loader catalog.
+///
+/// Each loader range holds its first address and the address after it. The
+/// address comparison avoids path aliases, archive paths, and deleted names.
+#[must_use]
+pub fn outside_loader(text: &str, loader_ranges: &[(u64, u64)]) -> CatalogGap {
+    let mut found = CatalogGap::default();
+    for mapping in executable_mappings(text) {
+        if !matches!(mapping.origin, Origin::File(_) | Origin::Deleted(_)) {
+            continue;
+        }
+        let accounted = loader_ranges
+            .iter()
+            .any(|(start, end)| mapping.start >= *start && mapping.end <= *end);
+        if accounted {
+            continue;
+        }
+        found.regions = found.regions.saturating_add(1);
+        found.bytes = found.bytes.saturating_add(mapping.bytes());
+    }
+    found
+}
+
 /// The address range of every executable mapping, in address order.
 ///
 /// The caller turns these into a snapshot. The reader keeps no judgement here:
@@ -275,7 +315,7 @@ pub fn executable_ranges(text: &str) -> Vec<(u64, u64)> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Origin, executable_mappings, executable_ranges, unaccounted};
+    use super::{Origin, executable_mappings, executable_ranges, outside_loader, unaccounted};
 
     /// A real mapping table, captured on Debian and ARM64 on 2026-08-09.
     const CLEAN: &str = include_str!("../fixtures/maps-clean.txt");
@@ -603,5 +643,36 @@ mod tests {
     #[test]
     fn a_line_that_the_reader_cannot_understand_is_skipped() {
         assert!(executable_mappings("nonsense\n\n").is_empty());
+    }
+
+    #[test]
+    fn the_loader_catalog_accounts_for_a_file_mapping_by_address() {
+        let text = "1000-2000 r-xp 0 00:5f 1 /tmp/module.so\n";
+        assert!(outside_loader(text, &[(0x0800, 0x2800)]).is_empty());
+    }
+
+    #[test]
+    fn a_file_mapping_outside_the_loader_catalog_counts() {
+        let text = "1000-2000 r-xp 0 00:5f 1 /tmp/module.so\n";
+        assert_eq!(outside_loader(text, &[(0x3000, 0x4000)]).regions, 1);
+    }
+
+    #[test]
+    fn a_mapping_that_extends_past_a_loader_range_counts() {
+        let text = "1000-3000 r-xp 0 00:5f 1 /tmp/module.so\n";
+        assert_eq!(outside_loader(text, &[(0x0800, 0x2000)]).regions, 1);
+    }
+
+    #[test]
+    fn a_file_mapping_outside_the_loader_catalog_counts_its_bytes() {
+        let text = "1000-2800 r-xp 0 00:5f 1 /tmp/module.so\n";
+        assert_eq!(outside_loader(text, &[]).bytes, 0x1800);
+    }
+
+    #[test]
+    fn anonymous_and_named_code_do_not_take_part_in_the_catalog() {
+        let text = "1000-2000 r-xp 0 00:00 0\n\
+                    3000-4000 r-xp 0 00:00 0 [vdso]\n";
+        assert!(outside_loader(text, &[]).is_empty());
     }
 }

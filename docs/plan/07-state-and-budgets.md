@@ -102,7 +102,8 @@ compare directly. Each read goes through `&dyn Environment`, which is the call t
 and which is also the only form the optimizer cannot lift out of the loop. Every column used ARM64.
 The first four were measured on 2026-08-10, and the Windows column on 2026-08-18 in the QEMU guest
 that `tests/platform/vm/windows/` builds. The Android `dispatch_targets` read was measured on
-2026-08-20. The other four `dispatch_targets` reads were measured on 2026-08-21:
+2026-08-20. The other four `dispatch_targets` reads were measured on 2026-08-21. The image catalog
+and local-agent rows were measured on 2026-08-24:
 
 | Read | macOS 26 | iOS 26, simulator | Debian, glibc | Android 37 | Windows 11 |
 |---|---|---|---|---|---|
@@ -112,7 +113,11 @@ that `tests/platform/vm/windows/` builds. The Android `dispatch_targets` read wa
 | `code_regions` | 58 us | 70 us | 9.7 us | 35 us | 411 us |
 | `code_origin` | none | none | 9.3 us | 35 us | 410 us |
 | `dispatch_targets` | 2.3 us | 2.3 us | 728 ns | 2.0 us | 117 us |
-| one worker cycle | 416 us | 90 us | 23 us | 178 us | 1.2 ms |
+| `image_catalog` | none | none | 10.7 us | 149 us | 468 us |
+| `machine_host` | 1.9 us | 903 ns | 7.5 us | 2.0 us | 11.1 us |
+| `boot_verification` | none | none | none | 3 us | none |
+| `local_agent` | 117 us | 106 us | 4.9 us | 620 us | 17.6 ms to 21.0 ms |
+| one worker cycle | 533 us | 196 us | 39 us | 951 us | 19.3 ms to 22.7 ms |
 
 `dispatch_targets` reads one image alone. Linux stops at the first loaded object. Windows copies
 the readable pages of one image into a bounded buffer. Apple checks each parser range against the
@@ -174,29 +179,27 @@ cycle, where the two address-space walks cost more than the identity does.
 
 **The Android column above is a shell binary, which maps no archive.** Its identity read stops at
 the gap, so the whole route is unmeasured there. The instrumented harness measures an application
-process, which is what a host runs: one identity read costs about 510 us, and one worker cycle
-costs about 2.4 ms. The cycle is more than the reads above because a real application maps far more
-regions, and `code_regions` and `code_origin` each walk the whole mapping table. Reading it once
-for both would nearly halve the cycle, and no measurement asks for that yet.
+process, which is what a host runs. The physical Samsung SM-A065F test reports about 4.0 ms for one
+identity read. Its v0.4.0 worker cycle costs between 22.9 ms and 23.6 ms. A real application maps
+more regions, so both region reads cost more than in the shell process.
 
 The harness reports the fastest call, and the `cost` examples report a mean. The two run in
 different processes: an example owns its process, and the harness shares one with every other
 instrumented test, including the control that starts a Fidelity runtime. A mean would measure that
 worker as well, and it would move with the order that JUnit picks. A minimum needs enough samples
 to find a quiet call, so the harness takes 100 of them where the examples take what a 200 ms bound
-allows. Measured on 2026-08-20: at 10 samples one cycle reported 12.2 ms to 26.6 ms on one
-emulator, and at 100 samples the same emulator reported 11.0 ms to 11.3 ms. That gap failed the
-ceiling row on 2026-08-20, and `tests/platform/README.md` holds the whole measurement.
-`HarnessTest.the_identity_read_stays_inside_its_recorded_ceiling` holds ceilings of 4 ms and 20 ms.
-They catch a regression of one order rather than state the budget, and a fresh emulator reconfirmed
-both figures above on 2026-08-20.
+allows. The 30 ms cycle ceiling is the release gate. The cycle reads identity twice, so a second
+identity ceiling would test the same cost twice. `tests/platform/README.md` holds the full test
+record.
 
-**The iOS reads are nanoseconds because the image names no team.** The walk finds the signature,
-finds no entitlements slot, and stops. An image that names a team adds a scan of a small plist.
-That figure is unverified, because the simulator refuses to launch any image that carries the
-entitlement. Measured on 2026-08-18, the refusal holds for a bare binary and for an installed app
-bundle, and for an ad-hoc signature and a real developer certificate alike, because a simulator has
-no provisioning mechanism. A device closes it. See [verification](05-verification.md).
+The Windows guest spends 17.6 ms to 21.0 ms on a refused connection. The connection deadline is
+5 ms. Guest schedule latency accounts for the difference. The worker runs this full-only read once
+per five-second cycle. The measured cost is at most 0.42 percent of one core.
+
+**A provisioned iOS image keeps the identity reads in microseconds.** Measured on 2026-08-24, an
+iPhone 12 Pro on iOS 26.6.1 names its team. `code_identity` costs 2.2 us after its first 18.7 us
+call, and `identity_match` costs 1.9 us. The same physical control measures `machine_host` at
+1.4 us. The table keeps the simulator column, because its other reads remain the larger values.
 
 The first call is separate, and two platforms charge a large one. macOS costs between 4 ms and 8 ms,
 because the Security framework loads and fills its caches once. Windows costs the same order for the

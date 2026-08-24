@@ -8,17 +8,17 @@ publish = false
 [workspace]
 
 [dependencies]
-fidelity = { path = "packages/fidelity-0.3.0", features = ["serde", "tracing"] }
+fidelity = { path = "packages/fidelity-@VERSION@", features = ["serde", "tracing"] }
 
 [patch.crates-io]
-fidelity-cipher = { path = "packages/fidelity-cipher-0.3.0" }
-fidelity-core = { path = "packages/fidelity-core-0.3.0" }
-fidelity-detect = { path = "packages/fidelity-detect-0.3.0" }
-fidelity-engine = { path = "packages/fidelity-engine-0.3.0" }
-fidelity-formats = { path = "packages/fidelity-formats-0.3.0" }
-fidelity-macros = { path = "packages/fidelity-macros-0.3.0" }
-fidelity-probe-android = { path = "packages/fidelity-probe-android-0.3.0" }
-fidelity-probe-apple = { path = "packages/fidelity-probe-apple-0.3.0" }
-fidelity-probe-linux = { path = "packages/fidelity-probe-linux-0.3.0" }
-fidelity-probe-windows = { path = "packages/fidelity-probe-windows-0.3.0" }
-fidelity-types = { path = "packages/fidelity-types-0.3.0" }
+fidelity-cipher = { path = "packages/fidelity-cipher-@VERSION@" }
+fidelity-core = { path = "packages/fidelity-core-@VERSION@" }
+fidelity-detect = { path = "packages/fidelity-detect-@VERSION@" }
+fidelity-engine = { path = "packages/fidelity-engine-@VERSION@" }
+fidelity-formats = { path = "packages/fidelity-formats-@VERSION@" }
+fidelity-macros = { path = "packages/fidelity-macros-@VERSION@" }
+fidelity-probe-android = { path = "packages/fidelity-probe-android-@VERSION@" }
+fidelity-probe-apple = { path = "packages/fidelity-probe-apple-@VERSION@" }
+fidelity-probe-linux = { path = "packages/fidelity-probe-linux-@VERSION@" }
+fidelity-probe-windows = { path = "packages/fidelity-probe-windows-@VERSION@" }
+fidelity-types = { path = "packages/fidelity-types-@VERSION@" }

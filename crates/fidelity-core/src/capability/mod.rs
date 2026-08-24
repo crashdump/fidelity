@@ -46,7 +46,10 @@
 //! | [`tracer`] | `Debugging` | Does a debugger or a tracer hold this process? |
 //! | [`injection`] | `Instrumentation` | Does executable memory hold code that no file accounts for? |
 //! | [`dispatch`] | `Instrumentation` | Did a call target of the main image change since start? |
+//! | [`image_catalog`] | `Instrumentation` | Does the loader account for each executable file image? |
+//! | [`local_agent`] | `Instrumentation` | Does a compatible endpoint answer on loopback? |
 //! | [`device`] | `DeviceCompromise` | Is the operating-system security model weakened? |
+//! | [`verified_boot`] | `DeviceCompromise` | Did Android verify the system before it started? |
 //! | [`emulation`] | `Virtualization` | Does this run in an emulator or a virtual machine? |
 //!
 //! `UiAbuse` holds no capability, and a measurement decided that rather than an
@@ -72,15 +75,21 @@ pub mod device;
 pub mod dispatch;
 pub mod emulation;
 pub mod identity;
+pub mod image_catalog;
 pub mod injection;
 pub mod lifecycle;
+pub mod local_agent;
 pub mod tracer;
+pub mod verified_boot;
 
 pub use baseline::Baseline;
 pub use device::Device;
 pub use dispatch::Dispatch;
 pub use emulation::Emulation;
 pub use identity::Identity;
+pub use image_catalog::ImageCatalog;
 pub use injection::Injection;
 pub use lifecycle::Lifecycle;
+pub use local_agent::LocalAgent;
 pub use tracer::Tracer;
+pub use verified_boot::VerifiedBoot;

@@ -7,11 +7,13 @@ environment, and it applies a response that the host selects.
 > identity, compare executable memory against a baseline that `start()` captured, and read tracer
 > state. Windows, Linux, and Android add unaccounted code, and Android adds device compromise. All
 > five also read the dispatch table of the image that holds the host, so a redirected call is a
-> finding that the baseline misses. Four
-> report whether a virtual machine monitor runs the system, and iOS is the one that does not.
-> The iOS results come from the simulator, and the Windows results come from a virtual machine. A
-> device and a physical host have still to confirm those two, and a physical host is also what the
-> clean half of the machine-host question needs on Linux, Windows, and Android. Every run on the
+> finding that the baseline misses. All five query a bounded local-agent endpoint. Linux, Android,
+> and Windows compare executable images with the loader catalog. Android reads verified boot.
+> All five answer the machine-host question. macOS, Linux, and
+> Windows report a virtual machine monitor. Android and iOS report an emulator or a simulator with
+> separate evidence. A physical iPhone confirms iOS identity and the clean machine-host result. A
+> physical Android phone confirms Android identity, build state, and the same clean result. Linux
+> and Windows still need a physical host for their clean machine-host controls. Every run on the
 > development machine used ARM64, and the gate runs the same harness on x86_64 and ARM64 runners for
 > Linux and Windows. macOS is ARM64 only, and no Intel Mac is in scope. One detector reports on
 > every clean x64 Windows process: see

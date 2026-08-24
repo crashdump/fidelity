@@ -15,12 +15,15 @@
 
 mod baseline;
 mod dispatch;
+mod emulation;
 mod identity;
 mod lifecycle;
+mod local_agent;
 mod tracer;
 
 use fidelity_core::{
-    Baseline, Device, Dispatch, Emulation, Environment, Identity, Injection, Lifecycle, Tracer,
+    Baseline, Device, Dispatch, Emulation, Environment, Identity, ImageCatalog, Injection,
+    Lifecycle, Tracer, VerifiedBoot,
 };
 use fidelity_types::Platform;
 
@@ -57,7 +60,7 @@ impl Environment for IosEnvironment {
 // follows that shape. Until it does, an empty `impl` here states the gap, and
 // the trait default reports `Unsupported`.
 const _: fn() = || {
-    fn implements<T: Baseline + Dispatch + Identity + Lifecycle + Tracer>() {}
+    fn implements<T: Baseline + Dispatch + Emulation + Identity + Lifecycle + Tracer>() {}
     implements::<IosEnvironment>();
 };
 
@@ -67,27 +70,15 @@ const _: fn() = || {
 // runtime baseline answers the same question with a comparison instead.
 impl Injection for IosEnvironment {}
 
-// iOS can answer `device`, and no code exists yet. A jailbreak weakens
-// the same kernel guarantees that this probe already reads for identity,
-// so the mechanism is reachable. It waits for a control that produces a
-// jailbroken system, because no measurement means no detector.
+impl ImageCatalog for IosEnvironment {}
+
+// iOS offers no public state that separates a jailbreak from a released
+// device. The iOS 26.5 SDK declares `kern.securelevel`, but a provisioned
+// application on iOS 26.6.1 receives `EPERM` when it reads that value. A path
+// list is excluded evidence, so the capability states the gap.
 impl Device for IosEnvironment {}
 
-// iOS can answer `emulation`, and no code exists yet. Apple ships no way to
-// run iOS in a virtual machine, and a commercial service does exactly that and
-// sells it to anybody who studies an application, so the question applies.
-//
-// The macOS reader stays macOS only, and a measurement decided that rather
-// than caution. Measured on 2026-08-19 in an iOS 18.5 simulator: a process
-// there reads the kernel of the Mac that hosts it, so `kern.hv_vmm_present`,
-// `hw.machine`, and `hw.model` each report what the Mac reports and none of
-// them describes the simulator. A probe that took that value would state a
-// clean result about a system it never read.
-//
-// The simulator is reachable and a device is not, so any rule that separated
-// the two would rest on what this project believes a device reports. It waits
-// for a device, because no measurement means no detector.
-impl Emulation for IosEnvironment {}
+impl VerifiedBoot for IosEnvironment {}
 
 #[cfg(test)]
 mod tests {

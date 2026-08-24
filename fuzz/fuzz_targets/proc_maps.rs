@@ -13,5 +13,6 @@ fuzz_target!(|data: &[u8]| {
         );
         let _ = maps::unaccounted(text);
         let _ = maps::executable_ranges(text);
+        let _ = maps::outside_loader(text, &[(0x1000, 0x2000), (0x4000, 0x8000)]);
     }
 });
