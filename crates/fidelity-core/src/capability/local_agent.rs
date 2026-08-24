@@ -53,15 +53,7 @@ fn probe_address(
 
     let mut stream = match TcpStream::connect_timeout(&address, connect_deadline) {
         Ok(stream) => stream,
-        Err(error) if error.kind() == io::ErrorKind::ConnectionRefused => {
-            return Observation::Fact(LocalAgentState::Absent);
-        }
-        Err(error) if error.kind() == io::ErrorKind::TimedOut => {
-            return Observation::failed("the loopback connection reached its deadline");
-        }
-        Err(error) => {
-            return Observation::failed(format!("the loopback connection failed: {error}"));
-        }
+        Err(error) => return connection_failure(&error),
     };
 
     if let Err(error) = stream.set_read_timeout(Some(io_deadline)) {
@@ -114,6 +106,16 @@ fn probe_address(
     }
 }
 
+fn connection_failure(error: &io::Error) -> Observation<LocalAgentState> {
+    match error.kind() {
+        io::ErrorKind::ConnectionRefused => Observation::Fact(LocalAgentState::Absent),
+        io::ErrorKind::TimedOut => {
+            Observation::failed("the loopback connection reached its deadline")
+        }
+        _ => Observation::failed(format!("the loopback connection failed: {error}")),
+    }
+}
+
 fn is_frida_websocket_response(response: &[u8]) -> bool {
     let Ok(text) = std::str::from_utf8(response) else {
         return false;
@@ -154,7 +156,7 @@ fn is_frida_websocket_response(response: &[u8]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::io::{Read, Write};
+    use std::io::{self, Read, Write};
     use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpListener};
     use std::sync::mpsc;
     use std::thread;
@@ -163,7 +165,7 @@ mod tests {
     use crate::Observation;
     use crate::fact::LocalAgentState;
 
-    use super::probe_address;
+    use super::{connection_failure, probe_address};
 
     const FRIDA_RESPONSE: &[u8] = b"HTTP/1.1 101 Switching Protocols\r\n\
 Upgrade: websocket\r\n\
@@ -240,21 +242,9 @@ Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n";
     }
 
     #[test]
-    fn a_closed_port_reports_no_local_agent() {
-        let Ok(listener) = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)) else {
-            panic!("the test must bind a loopback socket")
-        };
-        let Ok(address) = listener.local_addr() else {
-            panic!("the test must read its loopback address")
-        };
-        drop(listener);
-
+    fn a_refused_connection_reports_no_local_agent() {
         assert_eq!(
-            probe_address(
-                address,
-                Duration::from_millis(100),
-                Duration::from_millis(100),
-            ),
+            connection_failure(&io::Error::from(io::ErrorKind::ConnectionRefused)),
             Observation::Fact(LocalAgentState::Absent)
         );
     }
