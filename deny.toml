@@ -2,13 +2,6 @@
 ignore = [
     # Tauri 2.11.5 uses the archived GTK3 bindings on Linux. RustSec names no
     # safe upgrade, and the adapter cannot replace the runtime that Tauri owns.
-    { id = "RUSTSEC-2024-0412", reason = "Tauri owns the Linux GTK3 runtime" },
-    { id = "RUSTSEC-2024-0413", reason = "Tauri owns the Linux GTK3 runtime" },
-    { id = "RUSTSEC-2024-0415", reason = "Tauri owns the Linux GTK3 runtime" },
-    { id = "RUSTSEC-2024-0416", reason = "Tauri owns the Linux GTK3 runtime" },
-    { id = "RUSTSEC-2024-0418", reason = "Tauri owns the Linux GTK3 runtime" },
-    { id = "RUSTSEC-2024-0419", reason = "Tauri owns the Linux GTK3 runtime" },
-    { id = "RUSTSEC-2024-0420", reason = "Tauri owns the Linux GTK3 runtime" },
     { id = "RUSTSEC-2024-0429", reason = "current Tauri pins the affected GTK3 glib release" },
     { id = "RUSTSEC-2024-0370", reason = "the GTK3 macro graph owns this build dependency" },
 
